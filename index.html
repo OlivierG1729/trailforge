@@ -285,6 +285,37 @@
   .live-hud .live-stop:hover { background: #ff3333; color: #fff; }
   .toolbar button.active-live { background: #ff3333; color: #fff; box-shadow: 0 0 16px rgba(255,51,51,0.4); animation: live-blink 1s ease-in-out infinite; }
 
+  /* Capture zone overlay */
+  .capture-overlay {
+    position: fixed; inset: 0; z-index: 1500;
+    cursor: crosshair; display: none;
+  }
+  .capture-overlay.visible { display: block; }
+  .capture-rect {
+    position: absolute; border: 2px dashed #ff4d4d;
+    background: rgba(255, 77, 77, 0.08);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+  }
+  .capture-hint {
+    position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+    z-index: 1600; background: var(--bg-secondary); border: 1px solid var(--accent);
+    border-radius: var(--radius); padding: 10px 20px;
+    color: var(--text-primary); font-size: 0.85rem;
+    box-shadow: var(--shadow);
+  }
+  .toolbar button.active-capture { background: #e67e22; color: #fff; box-shadow: 0 0 12px rgba(230,126,34,0.4); }
+
+  /* Capture preview modal */
+  .capture-preview-img {
+    max-width: 100%; max-height: 300px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); margin-bottom: 14px; display: block;
+  }
+  .capture-stats {
+    font-family: var(--font-mono); font-size: 0.8rem;
+    color: var(--text-secondary); margin-bottom: 14px;
+  }
+
   .toast {
     position: fixed; bottom: 24px; left: 50%;
     transform: translateX(-50%) translateY(80px); z-index: 3000;
@@ -456,6 +487,9 @@
   <button id="btn-live" data-tooltip="Tracé GPS en direct" onclick="toggleLiveTracking()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg>
   </button>
+  <button id="btn-capture" data-tooltip="Capture de zone" onclick="toggleCaptureMode()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3H3v3"/><path d="M21 3h-3"/><path d="M21 21v-3"/><path d="M3 21v-3"/><path d="M18 3v3"/><path d="M3 6h3"/><path d="M21 18h-3"/><path d="M6 21h3"/></svg>
+  </button>
   <div class="separator"></div>
   <button data-tooltip="Projets sauvegardés" onclick="togglePanel()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -571,6 +605,26 @@
   <button class="live-stop" onclick="toggleLiveTracking()">⏹ Arrêter</button>
 </div>
 
+<!-- CAPTURE ZONE OVERLAY — rectangle de sélection -->
+<div class="capture-overlay" id="capture-overlay"></div>
+<div class="capture-hint" id="capture-hint" style="display:none;">
+  Dessine un rectangle sur la carte pour définir la zone de capture — Echap pour annuler
+</div>
+
+<!-- CAPTURE PREVIEW MODAL -->
+<div class="modal-overlay" id="capture-modal">
+  <div class="modal modal-wide">
+    <h3>📐 Capture de zone</h3>
+    <img id="capture-preview-img" class="capture-preview-img" alt="Aperçu de la capture" />
+    <div class="capture-stats" id="capture-stats"></div>
+    <div class="gps-actions">
+      <button class="btn btn-primary" onclick="downloadCaptureImage()">🖼 Télécharger l'image</button>
+      <button class="btn" onclick="downloadCaptureCSV()">⬇ Télécharger CSV (X,Y)</button>
+      <button class="btn" onclick="closeCaptureModal()">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <!-- GPS HELP MODAL (affiché si file://) -->
 <div class="modal-overlay" id="gps-help-modal">
   <div class="modal">
@@ -676,11 +730,11 @@ let savedProjects = JSON.parse(localStorage.getItem('trailforge_projects') || '[
    ================================================================== */
 const map = L.map('map', { center: [43.7228, 7.1119], zoom: 14, zoomControl: true });
 const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a>' });
+  { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a>', crossOrigin: 'anonymous' });
 const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-  { maxZoom: 17, attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a>' });
+  { maxZoom: 17, attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a>', crossOrigin: 'anonymous' });
 const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  { maxZoom: 18, attribution: '© <a href="https://www.esri.com">Esri</a>' });
+  { maxZoom: 18, attribution: '© <a href="https://www.esri.com">Esri</a>', crossOrigin: 'anonymous' });
 osmLayer.addTo(map);
 L.control.layers({ '🗺️ Standard': osmLayer, '⛰️ Topographique': topoLayer, '🛰️ Satellite': satLayer },
   null, { position: 'topright' }).addTo(map);
@@ -1076,7 +1130,7 @@ function formatDistance(m) {
 document.addEventListener('keydown', function(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undoLastPoint(); }
   if (e.key === 'Escape') {
-    closeSaveModal(); closeAnnotationModal(); closeGPSModal(); closeLiveExportModal(); closeGPSHelpModal();
+    closeSaveModal(); closeAnnotationModal(); closeGPSModal(); closeLiveExportModal(); closeGPSHelpModal(); closeCaptureModal(); exitCaptureMode();
     if (document.getElementById('panel').classList.contains('open')) togglePanel();
   }
 });
@@ -1662,10 +1716,418 @@ function updateLiveTimer() {
    LIVE EXPORT MODAL
    ================================================================== */
 /* ==================================================================
+   CAPTURE DE ZONE — Screenshot + coordonnées pixel des nœuds
+   ==================================================================
+   Workflow :
+   1. L'utilisateur clique le bouton "Capture de zone"
+   2. Un overlay transparent couvre l'écran (cursor: crosshair)
+   3. Il dessine un rectangle au drag (souris ou tactile)
+   4. Un canvas est composé manuellement (tuiles + sentiers + nœuds)
+   5. Les nœuds de sentier dont les coordonnées GPS tombent dans
+      la zone sont convertis en coordonnées pixel (X,Y) relatives
+      au coin haut-gauche de la zone capturée
+   6. Export image PNG + CSV (n°, X, Y, type)
+   ================================================================== */
+
+var captureState = {
+  active: false,        // mode capture actif ?
+  dragging: false,      // en train de dessiner le rectangle ?
+  startX: 0, startY: 0,
+  rect: null,           // élément DOM du rectangle
+  imageDataURL: null,   // image capturée (base64)
+  csvText: '',          // CSV des coordonnées
+  nodeCount: 0,
+};
+
+function toggleCaptureMode() {
+  if (captureState.active) {
+    exitCaptureMode();
+  } else {
+    enterCaptureMode();
+  }
+}
+
+function enterCaptureMode() {
+  captureState.active = true;
+  document.getElementById('btn-capture').className = 'active-capture';
+  document.getElementById('capture-hint').style.display = 'block';
+
+  var overlay = document.getElementById('capture-overlay');
+  overlay.classList.add('visible');
+
+  // Événements souris
+  overlay.addEventListener('mousedown', onCaptureMouseDown);
+  overlay.addEventListener('mousemove', onCaptureMouseMove);
+  overlay.addEventListener('mouseup', onCaptureMouseUp);
+
+  // Événements tactiles (mobile)
+  overlay.addEventListener('touchstart', onCaptureTouchStart, { passive: false });
+  overlay.addEventListener('touchmove', onCaptureTouchMove, { passive: false });
+  overlay.addEventListener('touchend', onCaptureTouchEnd);
+}
+
+function exitCaptureMode() {
+  captureState.active = false;
+  captureState.dragging = false;
+  document.getElementById('btn-capture').className = '';
+  document.getElementById('capture-hint').style.display = 'none';
+
+  var overlay = document.getElementById('capture-overlay');
+  overlay.classList.remove('visible');
+  overlay.innerHTML = '';
+
+  overlay.removeEventListener('mousedown', onCaptureMouseDown);
+  overlay.removeEventListener('mousemove', onCaptureMouseMove);
+  overlay.removeEventListener('mouseup', onCaptureMouseUp);
+  overlay.removeEventListener('touchstart', onCaptureTouchStart);
+  overlay.removeEventListener('touchmove', onCaptureTouchMove);
+  overlay.removeEventListener('touchend', onCaptureTouchEnd);
+}
+
+// ---- Souris ----
+function onCaptureMouseDown(e) {
+  e.preventDefault();
+  startCaptureDrag(e.clientX, e.clientY);
+}
+function onCaptureMouseMove(e) {
+  if (!captureState.dragging) return;
+  updateCaptureDrag(e.clientX, e.clientY);
+}
+function onCaptureMouseUp(e) {
+  if (!captureState.dragging) return;
+  endCaptureDrag(e.clientX, e.clientY);
+}
+
+// ---- Tactile ----
+function onCaptureTouchStart(e) {
+  e.preventDefault();
+  var t = e.touches[0];
+  startCaptureDrag(t.clientX, t.clientY);
+}
+function onCaptureTouchMove(e) {
+  e.preventDefault();
+  if (!captureState.dragging) return;
+  var t = e.touches[0];
+  updateCaptureDrag(t.clientX, t.clientY);
+}
+function onCaptureTouchEnd(e) {
+  if (!captureState.dragging) return;
+  var t = e.changedTouches[0];
+  endCaptureDrag(t.clientX, t.clientY);
+}
+
+// ---- Logique commune drag ----
+function startCaptureDrag(x, y) {
+  captureState.dragging = true;
+  captureState.startX = x;
+  captureState.startY = y;
+
+  // Créer l'élément rectangle
+  var overlay = document.getElementById('capture-overlay');
+  overlay.innerHTML = '';
+  var rect = document.createElement('div');
+  rect.className = 'capture-rect';
+  rect.style.left = x + 'px';
+  rect.style.top = y + 'px';
+  rect.style.width = '0px';
+  rect.style.height = '0px';
+  overlay.appendChild(rect);
+  captureState.rect = rect;
+}
+
+function updateCaptureDrag(x, y) {
+  var r = captureState.rect;
+  if (!r) return;
+  // Gérer le drag dans toutes les directions
+  var left = Math.min(captureState.startX, x);
+  var top = Math.min(captureState.startY, y);
+  var w = Math.abs(x - captureState.startX);
+  var h = Math.abs(y - captureState.startY);
+  r.style.left = left + 'px';
+  r.style.top = top + 'px';
+  r.style.width = w + 'px';
+  r.style.height = h + 'px';
+}
+
+function endCaptureDrag(x, y) {
+  captureState.dragging = false;
+
+  var left = Math.min(captureState.startX, x);
+  var top = Math.min(captureState.startY, y);
+  var w = Math.abs(x - captureState.startX);
+  var h = Math.abs(y - captureState.startY);
+
+  // Zone trop petite ? Annuler
+  if (w < 30 || h < 30) {
+    showToast('Zone trop petite — recommence');
+    document.getElementById('capture-overlay').innerHTML = '';
+    return;
+  }
+
+  // Masquer l'overlay AVANT la capture (pour qu'il n'apparaisse pas)
+  exitCaptureMode();
+
+  // Petit délai pour que le DOM se rafraîchisse
+  setTimeout(function() {
+    performCapture(left, top, w, h);
+  }, 100);
+}
+
+/**
+ * Effectue la capture d'écran et extrait les coordonnées des nœuds.
+ * 
+ * @param {number} left - position X du coin haut-gauche de la zone (en pixels écran)
+ * @param {number} top  - position Y du coin haut-gauche
+ * @param {number} w    - largeur de la zone
+ * @param {number} h    - hauteur de la zone
+ */
+function performCapture(left, top, w, h) {
+  showToast('Capture en cours\u2026');
+
+  var mapEl = document.getElementById('map');
+  var mapRect = mapEl.getBoundingClientRect();
+  var dpr = window.devicePixelRatio || 1;
+
+  // Coordonnées de la zone relative au conteneur de carte
+  var cropX = left - mapRect.left;
+  var cropY = top - mapRect.top;
+
+  // Dimensions image finale (en pixels physiques)
+  var imgW = Math.round(w * dpr);
+  var imgH = Math.round(h * dpr);
+
+  var canvas = document.createElement('canvas');
+  canvas.width = imgW;
+  canvas.height = imgH;
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // ==========================================================
+  // ÉTAPE 1 : Dessiner les tuiles de carte
+  // On récupère toutes les <img> du tilePane de Leaflet,
+  // on calcule leur position et on les dessine sur le canvas.
+  // ==========================================================
+  var tilePane = map.getPane('tilePane');
+  var tilesToDraw = [];
+
+  if (tilePane) {
+    var imgs = tilePane.querySelectorAll('img');
+    imgs.forEach(function(img) {
+      if (!img.complete || !img.naturalWidth) return;
+      // Position de la tuile dans le viewport
+      var r = img.getBoundingClientRect();
+      tilesToDraw.push({
+        img: img,
+        dx: r.left - mapRect.left - cropX,
+        dy: r.top - mapRect.top - cropY,
+        dw: r.width,
+        dh: r.height
+      });
+    });
+  }
+
+  // Dessiner les tuiles (synchrone car déjà chargées)
+  tilesToDraw.forEach(function(t) {
+    try { ctx.drawImage(t.img, t.dx, t.dy, t.dw, t.dh); } catch(e) {}
+  });
+
+  // ==========================================================
+  // ÉTAPE 2 : Dessiner les polylines (sentiers)
+  // Pour chaque segment, on convertit les points GPS en pixels
+  // conteneur, puis en pixels relatifs à la zone de capture.
+  // ==========================================================
+  trails.forEach(function(trail) {
+    trail.segments.forEach(function(seg) {
+      if (seg.points.length < 2) return;
+      var typeInfo = TYPES[seg.type] || TYPES['trail-ok'];
+
+      ctx.beginPath();
+      ctx.strokeStyle = typeInfo.color;
+      ctx.lineWidth = 3;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+
+      // Tirets pour impraticable
+      if (typeInfo.dash) {
+        var parts = typeInfo.dash.split(',').map(function(s) { return parseFloat(s.trim()); });
+        ctx.setLineDash(parts);
+      } else {
+        ctx.setLineDash([]);
+      }
+
+      seg.points.forEach(function(p, i) {
+        var pt = map.latLngToContainerPoint(L.latLng(p[0], p[1]));
+        var x = pt.x - cropX;
+        var y = pt.y - cropY;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  });
+
+  // ==========================================================
+  // ÉTAPE 3 : Dessiner les marqueurs de nœuds (cercles)
+  // ==========================================================
+  trails.forEach(function(trail) {
+    trail.segments.forEach(function(seg) {
+      var typeInfo = TYPES[seg.type] || TYPES['trail-ok'];
+      seg.points.forEach(function(p) {
+        var pt = map.latLngToContainerPoint(L.latLng(p[0], p[1]));
+        var x = pt.x - cropX;
+        var y = pt.y - cropY;
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = typeInfo.color;
+        ctx.fill();
+        ctx.strokeStyle = typeInfo.color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    });
+  });
+
+  // ==========================================================
+  // ÉTAPE 4 : Dessiner les annotations (marqueurs emoji)
+  // ==========================================================
+  trails.forEach(function(trail) {
+    (trail.annotations || []).forEach(function(a) {
+      var pt = map.latLngToContainerPoint(L.latLng(a.latlng[0], a.latlng[1]));
+      var x = pt.x - cropX;
+      var y = pt.y - cropY;
+      var ic = ANNO_ICONS[a.icon || 0] || ANNO_ICONS[ANNO_ICONS.length - 1];
+      // Cercle de fond
+      ctx.beginPath();
+      ctx.arc(x, y, 12, 0, Math.PI * 2);
+      ctx.fillStyle = ic.bg;
+      ctx.fill();
+      // Emoji
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(ic.emoji, x, y);
+    });
+  });
+
+  // ==========================================================
+  // ÉTAPE 5 : Extraire les nœuds dans la zone + générer CSV
+  // ==========================================================
+  var nodes = [];
+  var typeLabels = { 'trail-ok': 'praticable', 'trail-bad': 'impraticable', 'river': 'riviere' };
+  var idx = 0;
+
+  trails.forEach(function(t, trailIdx) {
+    t.segments.forEach(function(seg) {
+      seg.points.forEach(function(p) {
+        var containerPt = map.latLngToContainerPoint(L.latLng(p[0], p[1]));
+        var cx = containerPt.x;
+        var cy = containerPt.y;
+
+        if (cx >= cropX && cx <= cropX + w && cy >= cropY && cy <= cropY + h) {
+          idx++;
+          nodes.push({
+            n: idx,
+            x: Math.round((cx - cropX) * dpr),
+            y: Math.round((cy - cropY) * dpr),
+            type: typeLabels[seg.type] || seg.type,
+            trail: t.name || ('Sentier ' + (trailIdx + 1)),
+          });
+        }
+      });
+    });
+  });
+
+  captureState.nodeCount = nodes.length;
+
+  var csv = 'n;X;Y;type;sentier\n';
+  nodes.forEach(function(nd) {
+    csv += nd.n + ';' + nd.x + ';' + nd.y + ';' + nd.type + ';' + nd.trail + '\n';
+  });
+  captureState.csvText = csv;
+
+  // ==========================================================
+  // ÉTAPE 6 : Afficher la modal
+  // ==========================================================
+  try {
+    captureState.imageDataURL = canvas.toDataURL('image/png');
+  } catch(e) {
+    // Canvas tainted par des tuiles cross-origin
+    // On recrée un canvas SANS les tuiles (juste sentiers + nœuds)
+    showToast('Tuiles protégées — image sans fond de carte');
+    var canvas2 = document.createElement('canvas');
+    canvas2.width = imgW; canvas2.height = imgH;
+    var ctx2 = canvas2.getContext('2d');
+    ctx2.scale(dpr, dpr);
+    ctx2.fillStyle = '#1a1a2e';
+    ctx2.fillRect(0, 0, w, h);
+    // Re-dessiner sentiers + nœuds sur fond sombre
+    trails.forEach(function(trail) {
+      trail.segments.forEach(function(seg) {
+        if (seg.points.length < 2) return;
+        var ti = TYPES[seg.type] || TYPES['trail-ok'];
+        ctx2.beginPath(); ctx2.strokeStyle = ti.color; ctx2.lineWidth = 3;
+        ctx2.lineJoin = 'round'; ctx2.lineCap = 'round';
+        if (ti.dash) { ctx2.setLineDash(ti.dash.split(',').map(function(s){return parseFloat(s);})); }
+        else { ctx2.setLineDash([]); }
+        seg.points.forEach(function(p, i) {
+          var pt = map.latLngToContainerPoint(L.latLng(p[0], p[1]));
+          if (i === 0) ctx2.moveTo(pt.x - cropX, pt.y - cropY);
+          else ctx2.lineTo(pt.x - cropX, pt.y - cropY);
+        });
+        ctx2.stroke(); ctx2.setLineDash([]);
+      });
+    });
+    trails.forEach(function(trail) {
+      trail.segments.forEach(function(seg) {
+        var ti = TYPES[seg.type] || TYPES['trail-ok'];
+        seg.points.forEach(function(p) {
+          var pt = map.latLngToContainerPoint(L.latLng(p[0], p[1]));
+          ctx2.beginPath(); ctx2.arc(pt.x - cropX, pt.y - cropY, 5, 0, Math.PI*2);
+          ctx2.fillStyle = ti.color; ctx2.fill();
+        });
+      });
+    });
+    captureState.imageDataURL = canvas2.toDataURL('image/png');
+  }
+  document.getElementById('capture-preview-img').src = captureState.imageDataURL;
+  document.getElementById('capture-stats').textContent =
+    'Image : ' + imgW + ' x ' + imgH + ' px  \u2014  ' +
+    nodes.length + ' noeud' + (nodes.length > 1 ? 's' : '') + ' dans la zone';
+
+  document.getElementById('capture-modal').classList.add('visible');
+}
+
+function closeCaptureModal() {
+  document.getElementById('capture-modal').classList.remove('visible');
+}
+
+function downloadCaptureImage() {
+  if (!captureState.imageDataURL) return;
+  var a = document.createElement('a');
+  a.href = captureState.imageDataURL;
+  a.download = 'trailforge_capture_' + Date.now() + '.png';
+  a.click();
+  showToast('Image téléchargée');
+}
+
+function downloadCaptureCSV() {
+  if (!captureState.csvText) return;
+  var blob = new Blob([captureState.csvText], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'trailforge_nodes_' + Date.now() + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSV téléchargé');
+}
+
+/* ==================================================================
    GPS HELP MODAL — affiché si le fichier est ouvert en file://
    ================================================================== */
 // URL de la version hébergée (à personnaliser après déploiement)
-var TRAILFORGE_URL = 'https://VOTRE-NOM.github.io/trailforge/';
+var TRAILFORGE_URL = 'https://OlivierG1729.github.io/trailforge/';
 
 function showGPSHelp() {
   var link = document.getElementById('gps-help-link');
