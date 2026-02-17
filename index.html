@@ -1,0 +1,1989 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>TrailForge — Traceur de sentiers</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-primary: #0f1117;
+    --bg-secondary: #181b24;
+    --bg-tertiary: #1e2230;
+    --bg-hover: #262a38;
+    --text-primary: #e8eaf0;
+    --text-secondary: #9098b0;
+    --text-muted: #5c6380;
+    --accent: #ff4d4d;
+    --accent-glow: rgba(255, 77, 77, 0.25);
+    --accent-hover: #ff6b6b;
+    --accent-green: #3dd68c;
+    --accent-blue: #4da6ff;
+    --accent-yellow: #ffd94d;
+    --border: #2a2e3d;
+    --border-light: #353a4d;
+    --radius: 10px;
+    --radius-sm: 6px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+    --font-display: 'Outfit', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --transition: 0.2s ease;
+    --color-river: #4da6ff;
+    --color-trail-ok: #ffd94d;
+    --color-trail-bad: #ff4d4d;
+    --color-annotation: #3dd68c;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%; font-family: var(--font-display);
+    background: var(--bg-primary); color: var(--text-primary);
+    overflow: hidden; -webkit-tap-highlight-color: transparent;
+  }
+  #map { position: absolute; inset: 0; z-index: 1; }
+
+  .header {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; display: flex; align-items: center; gap: 16px;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 8px 20px;
+    box-shadow: var(--shadow); backdrop-filter: blur(12px); white-space: nowrap;
+  }
+  .header .logo {
+    font-weight: 700; font-size: 1.05rem; letter-spacing: -0.02em;
+    color: var(--accent); display: flex; align-items: center; gap: 6px;
+  }
+  .header .logo svg { width: 20px; height: 20px; }
+  .header .stats {
+    display: flex; gap: 14px; font-size: 0.82rem;
+    color: var(--text-secondary); font-family: var(--font-mono); align-items: center;
+  }
+  .header .stats span { display: flex; align-items: center; gap: 4px; }
+  .header .stats .value { color: var(--text-primary); font-weight: 600; }
+  .header .stats .distance-display {
+    font-size: 1.15rem; font-weight: 700; color: var(--accent-yellow);
+    background: rgba(255, 217, 77, 0.1); border: 1px solid rgba(255, 217, 77, 0.25);
+    border-radius: var(--radius-sm); padding: 2px 10px;
+    font-family: var(--font-mono); letter-spacing: 0.02em;
+  }
+
+  .toolbar {
+    position: fixed; top: 50%; left: 16px; transform: translateY(-50%);
+    z-index: 1000; display: flex; flex-direction: column; gap: 4px;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 6px; box-shadow: var(--shadow);
+  }
+  .toolbar button {
+    display: flex; align-items: center; justify-content: center;
+    width: 42px; height: 42px; border: none; border-radius: var(--radius-sm);
+    background: transparent; color: var(--text-secondary); cursor: pointer;
+    transition: all var(--transition); position: relative;
+  }
+  .toolbar button:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .toolbar button.active { background: var(--accent); color: #fff; box-shadow: 0 0 16px var(--accent-glow); }
+  .toolbar button.active-green { background: var(--accent-green); color: #fff; box-shadow: 0 0 16px rgba(61,214,140,0.3); }
+  .toolbar button.active-blue { background: var(--accent-blue); color: #fff; box-shadow: 0 0 16px rgba(77,166,255,0.3); }
+  .toolbar button svg { width: 20px; height: 20px; }
+  .toolbar .separator { height: 1px; background: var(--border); margin: 4px 2px; }
+  .toolbar button::after {
+    content: attr(data-tooltip); position: absolute; left: calc(100% + 10px);
+    top: 50%; transform: translateY(-50%); background: var(--bg-tertiary);
+    color: var(--text-primary); border: 1px solid var(--border);
+    padding: 4px 10px; border-radius: var(--radius-sm); font-size: 0.75rem;
+    white-space: nowrap; opacity: 0; pointer-events: none;
+    transition: opacity var(--transition); font-family: var(--font-display); z-index: 10;
+  }
+  .toolbar button:hover::after { opacity: 1; }
+
+  .type-selector {
+    position: fixed; top: 50%; left: 72px; transform: translateY(-50%);
+    z-index: 1000; display: flex; flex-direction: column; gap: 3px;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 6px; box-shadow: var(--shadow);
+  }
+  .type-btn {
+    display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+    border: 2px solid transparent; border-radius: var(--radius-sm);
+    background: var(--bg-tertiary); color: var(--text-secondary); cursor: pointer;
+    transition: all var(--transition); font-family: var(--font-display);
+    font-size: 0.78rem; white-space: nowrap;
+  }
+  .type-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .type-btn.active { border-color: var(--active-color); color: var(--text-primary); background: var(--bg-hover); }
+  .type-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+
+  .trail-selector {
+    position: fixed; top: 68px; left: 16px; z-index: 1000;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 6px 12px; box-shadow: var(--shadow);
+    font-size: 0.82rem;
+  }
+  .trail-selector label { color: var(--text-muted); font-size: 0.75rem; }
+  .trail-selector select {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-primary);
+    font-family: var(--font-display); font-size: 0.82rem;
+    padding: 4px 8px; outline: none; cursor: pointer; max-width: 180px;
+  }
+  .trail-selector select:focus { border-color: var(--accent); }
+  .trail-selector button {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer;
+    padding: 4px 8px; font-size: 0.75rem; font-family: var(--font-display);
+    transition: all var(--transition); display: flex; align-items: center; gap: 4px;
+  }
+  .trail-selector button:hover { border-color: var(--accent); color: var(--text-primary); }
+  .trail-selector button svg { width: 14px; height: 14px; }
+
+  .panel {
+    position: fixed; top: 0; right: 0; width: 360px; height: 100%;
+    z-index: 1001; background: var(--bg-secondary);
+    border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.4);
+    transform: translateX(100%); transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex; flex-direction: column;
+  }
+  .panel.open { transform: translateX(0); }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px; border-bottom: 1px solid var(--border);
+  }
+  .panel-header h2 { font-size: 1rem; font-weight: 600; }
+  .panel-close {
+    background: none; border: none; color: var(--text-secondary);
+    cursor: pointer; padding: 4px; border-radius: var(--radius-sm); transition: all var(--transition);
+  }
+  .panel-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+  .trail-card {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 8px;
+    cursor: pointer; transition: all var(--transition);
+  }
+  .trail-card:hover { border-color: var(--accent); background: var(--bg-hover); }
+  .trail-card .trail-name { font-weight: 600; font-size: 0.88rem; margin-bottom: 4px; }
+  .trail-card .trail-meta {
+    font-size: 0.75rem; color: var(--text-muted);
+    font-family: var(--font-mono); display: flex; gap: 12px;
+  }
+  .trail-card-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .trail-card-actions button {
+    font-size: 0.7rem; padding: 3px 8px; border: 1px solid var(--border);
+    border-radius: 4px; background: var(--bg-secondary); color: var(--text-secondary);
+    cursor: pointer; font-family: var(--font-display); transition: all var(--transition);
+  }
+  .trail-card-actions button:hover { border-color: var(--accent); color: var(--text-primary); }
+  .trail-card-actions button.delete:hover { color: var(--accent); }
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 0.85rem; line-height: 1.6; }
+
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 2000;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center;
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px; width: 420px; max-width: 90vw; box-shadow: var(--shadow);
+  }
+  .modal h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 16px; }
+  .modal label { font-size: 0.8rem; color: var(--text-secondary); display: block; margin-bottom: 6px; }
+  .modal input[type="text"], .modal textarea {
+    width: 100%; padding: 10px 12px; background: var(--bg-tertiary);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    color: var(--text-primary); font-family: var(--font-display);
+    font-size: 0.88rem; outline: none; transition: border-color var(--transition); margin-bottom: 14px;
+  }
+  .modal input:focus, .modal textarea:focus { border-color: var(--accent); }
+  .modal textarea { resize: vertical; min-height: 60px; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+  /* Modal GPS — sélecteur de pas + zone de coordonnées */
+  .modal-wide { width: 560px; }
+  .gps-step-row {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  }
+  .gps-step-row label { margin: 0; white-space: nowrap; }
+  .gps-step-row select {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-primary);
+    font-family: var(--font-display); font-size: 0.85rem;
+    padding: 6px 10px; outline: none; cursor: pointer;
+  }
+  .gps-step-row select:focus { border-color: var(--accent); }
+  .gps-step-row .gps-info {
+    font-size: 0.78rem; color: var(--text-muted); font-family: var(--font-mono);
+  }
+  .gps-coords {
+    width: 100%; height: 260px; padding: 10px 12px;
+    background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--accent-yellow);
+    font-family: var(--font-mono); font-size: 0.75rem;
+    line-height: 1.5; outline: none; resize: vertical;
+    overflow-y: auto; white-space: pre; margin-bottom: 14px;
+  }
+  .gps-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    padding: 8px 18px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg-tertiary); color: var(--text-primary);
+    font-family: var(--font-display); font-size: 0.85rem; cursor: pointer; transition: all var(--transition);
+  }
+  .btn:hover { background: var(--bg-hover); border-color: var(--border-light); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+  /* Grille d'icônes annotation */
+  .icon-grid {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px;
+  }
+  .icon-option {
+    width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg-tertiary); cursor: pointer; font-size: 1.3rem;
+    transition: all var(--transition);
+  }
+  .icon-option:hover { background: var(--bg-hover); border-color: var(--border-light); }
+  .icon-option.selected { border-color: var(--accent-green); background: rgba(61,214,140,0.15); }
+
+  /* GPS Live Tracking HUD */
+  .live-hud {
+    position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; display: none; align-items: center; gap: 16px;
+    background: rgba(15, 17, 23, 0.92); border: 2px solid #ff3333;
+    border-radius: var(--radius); padding: 10px 22px;
+    box-shadow: 0 0 24px rgba(255, 51, 51, 0.3); backdrop-filter: blur(12px);
+    animation: live-pulse 2s ease-in-out infinite;
+  }
+  .live-hud.visible { display: flex; }
+  @keyframes live-pulse {
+    0%, 100% { border-color: #ff3333; box-shadow: 0 0 24px rgba(255, 51, 51, 0.3); }
+    50% { border-color: #ff6666; box-shadow: 0 0 32px rgba(255, 51, 51, 0.5); }
+  }
+  .live-dot {
+    width: 12px; height: 12px; border-radius: 50%; background: #ff3333;
+    animation: live-blink 1s ease-in-out infinite;
+  }
+  @keyframes live-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .live-hud .live-label {
+    font-size: 0.82rem; font-weight: 700; color: #ff6666;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .live-hud .live-stats {
+    display: flex; gap: 14px; font-family: var(--font-mono); font-size: 0.85rem;
+  }
+  .live-hud .live-stats span { color: var(--text-secondary); }
+  .live-hud .live-stats .lv { color: #fff; font-weight: 600; }
+  .live-hud .live-stop {
+    padding: 5px 14px; border: 1px solid #ff3333; border-radius: var(--radius-sm);
+    background: rgba(255, 51, 51, 0.15); color: #ff6666; cursor: pointer;
+    font-family: var(--font-display); font-size: 0.78rem; font-weight: 600;
+    transition: all var(--transition);
+  }
+  .live-hud .live-stop:hover { background: #ff3333; color: #fff; }
+  .toolbar button.active-live { background: #ff3333; color: #fff; box-shadow: 0 0 16px rgba(255,51,51,0.4); animation: live-blink 1s ease-in-out infinite; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(80px); z-index: 3000;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 20px; font-size: 0.85rem;
+    color: var(--text-primary); box-shadow: var(--shadow);
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1); pointer-events: none;
+  }
+  .toast.visible { transform: translateX(-50%) translateY(0); }
+
+  .help-bar {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; display: flex; gap: 16px;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 8px 18px; box-shadow: var(--shadow);
+    font-size: 0.78rem; color: var(--text-muted); white-space: nowrap;
+  }
+  .help-bar kbd {
+    display: inline-block; background: var(--bg-tertiary);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 1px 5px; font-family: var(--font-mono);
+    font-size: 0.72rem; color: var(--text-secondary); margin: 0 2px;
+  }
+
+  .leaflet-control-zoom a {
+    background: var(--bg-secondary) !important; color: var(--text-primary) !important;
+    border-color: var(--border) !important; width: 34px !important;
+    height: 34px !important; line-height: 34px !important; font-size: 16px !important;
+  }
+  .leaflet-control-zoom a:hover { background: var(--bg-hover) !important; }
+  .leaflet-control-zoom {
+    border: 1px solid var(--border) !important; border-radius: var(--radius-sm) !important;
+    overflow: hidden; box-shadow: var(--shadow-sm) !important;
+  }
+  .leaflet-control-layers {
+    background: var(--bg-secondary) !important; border: 1px solid var(--border) !important;
+    border-radius: var(--radius-sm) !important; box-shadow: var(--shadow-sm) !important;
+    color: var(--text-primary) !important; padding: 8px 12px !important;
+  }
+  .leaflet-control-layers label { color: var(--text-primary) !important; font-family: var(--font-display) !important; font-size: 0.82rem !important; }
+  .leaflet-control-layers-separator { border-top-color: var(--border) !important; }
+  .leaflet-control-attribution {
+    background: rgba(15, 17, 23, 0.8) !important; color: var(--text-muted) !important; font-size: 0.65rem !important;
+  }
+  .leaflet-control-attribution a { color: var(--text-secondary) !important; }
+  .leaflet-popup-content-wrapper {
+    background: var(--bg-secondary) !important; color: var(--text-primary) !important;
+    border-radius: var(--radius-sm) !important; box-shadow: var(--shadow) !important;
+    border: 1px solid var(--border) !important;
+  }
+  .leaflet-popup-tip { background: var(--bg-secondary) !important; border: 1px solid var(--border) !important; border-top: none !important; border-left: none !important; }
+  .leaflet-popup-content { font-family: var(--font-display) !important; font-size: 0.85rem !important; margin: 10px 14px !important; }
+  .leaflet-popup-content .popup-annotation { max-width: 240px; }
+  .leaflet-popup-content .popup-annotation .popup-icon { font-size: 1.6rem; margin-bottom: 4px; }
+  .leaflet-popup-content .popup-annotation h4 { font-size: 0.9rem; margin-bottom: 4px; color: var(--accent-green); }
+  .leaflet-popup-content .popup-annotation p { font-size: 0.8rem; color: var(--text-secondary); margin: 0; line-height: 1.4; }
+  .leaflet-popup-content .popup-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .leaflet-popup-content .popup-actions button {
+    font-size: 0.72rem; padding: 3px 8px; border: 1px solid var(--border);
+    border-radius: 4px; background: var(--bg-tertiary); color: var(--text-secondary);
+    cursor: pointer; font-family: var(--font-display); transition: all 0.2s ease;
+  }
+  .leaflet-popup-content .popup-actions button:hover { border-color: var(--accent); color: var(--text-primary); }
+  .drawing-mode { cursor: crosshair !important; }
+  .drawing-mode .leaflet-interactive { cursor: crosshair !important; }
+
+  @media (max-width: 640px) {
+    .header { top: 10px; padding: 6px 14px; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .header .logo { font-size: 0.92rem; }
+    .header .stats { font-size: 0.72rem; gap: 10px; }
+    .header .stats .distance-display { font-size: 0.95rem; }
+
+    /* Toolbar → grille en bas de l'écran, 2 rangées auto-wrap */
+    .toolbar {
+      top: auto; bottom: 10px; left: 10px; right: 10px;
+      transform: none; flex-direction: row; flex-wrap: wrap;
+      justify-content: center; gap: 3px;
+      padding: 6px 8px; border-radius: 14px;
+    }
+    .toolbar button { width: 36px; height: 36px; }
+    .toolbar button::after { display: none; }
+    .toolbar .separator { display: none; }
+
+    /* Type selector → au-dessus de la toolbar */
+    .type-selector {
+      top: auto; bottom: 100px; left: 10px; right: auto;
+      transform: none; flex-direction: row;
+    }
+    .type-btn { padding: 5px 8px; font-size: 0.7rem; }
+
+    /* Trail selector → en haut à gauche, sous le header */
+    .trail-selector {
+      top: 90px; bottom: auto; left: 10px;
+      flex-wrap: wrap; max-width: 280px;
+      padding: 4px 8px; font-size: 0.75rem;
+    }
+    .trail-selector select { max-width: 120px; font-size: 0.75rem; }
+
+    .help-bar { display: none; }
+    .panel { width: 100%; }
+    .modal { max-width: 95vw; padding: 20px; }
+    .modal-wide { width: 95vw; }
+
+    /* Live HUD → au-dessus de la toolbar */
+    .live-hud {
+      bottom: 110px; padding: 8px 14px; gap: 10px;
+      font-size: 0.78rem; flex-wrap: wrap; justify-content: center;
+    }
+    .live-hud .live-stats { gap: 10px; font-size: 0.78rem; }
+  }
+  #file-input { display: none; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="header">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21l4-10 4 10"/><path d="M2 21l6-14 3 7"/><path d="M15 7l5 14"/><circle cx="15" cy="5" r="2"/></svg>
+    TrailForge
+  </div>
+  <div class="stats">
+    <span>Pts : <span class="value" id="stat-points">0</span></span>
+    <span>Seg : <span class="value" id="stat-segments">0</span></span>
+    <span class="distance-display" id="stat-distance">0 m</span>
+  </div>
+</div>
+
+<div class="trail-selector">
+  <label>Sentier :</label>
+  <select id="active-trail-select" onchange="switchActiveTrail()"></select>
+  <button onclick="addNewTrail()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    Nouveau
+  </button>
+  <button onclick="renameActiveTrail()">Renommer</button>
+  <button onclick="deleteActiveTrailFromMap()">Supprimer</button>
+</div>
+
+<div class="toolbar">
+  <button id="btn-draw" class="active" data-tooltip="Mode tracé" onclick="setMode('draw')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+  </button>
+  <button id="btn-branch" data-tooltip="Nouveau tronçon (branche)" onclick="setMode('branch')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v3c0 3 3 5 6 5h3"/><path d="M12 6h3c1.7 0 3 1.3 3 3"/></svg>
+  </button>
+  <button id="btn-annotate" data-tooltip="Annotation 📍" onclick="setMode('annotate')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  </button>
+  <button data-tooltip="Annuler (Ctrl+Z)" onclick="undoLastPoint()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+  </button>
+  <button data-tooltip="Effacer sentier actif" onclick="clearActiveTrail()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+  </button>
+  <div class="separator"></div>
+  <button data-tooltip="Sauvegarder projet" onclick="openSaveModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+  </button>
+  <button data-tooltip="Exporter GPX" onclick="exportAllGPX()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+  </button>
+  <button data-tooltip="Importer GPX/GeoJSON" onclick="document.getElementById('file-input').click()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+  </button>
+  <button data-tooltip="Coordonnées GPS du sentier" onclick="openGPSModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/><circle cx="12" cy="12" r="3"/></svg>
+  </button>
+  <button id="btn-live" data-tooltip="Tracé GPS en direct" onclick="toggleLiveTracking()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg>
+  </button>
+  <div class="separator"></div>
+  <button data-tooltip="Projets sauvegardés" onclick="togglePanel()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+  </button>
+</div>
+
+<div class="type-selector">
+  <button class="type-btn active" style="--active-color: var(--color-trail-ok)" data-type="trail-ok" onclick="setDrawType('trail-ok')">
+    <span class="type-dot" style="background: var(--color-trail-ok)"></span>Praticable
+  </button>
+  <button class="type-btn" style="--active-color: var(--color-trail-bad)" data-type="trail-bad" onclick="setDrawType('trail-bad')">
+    <span class="type-dot" style="background: var(--color-trail-bad)"></span>Impraticable
+  </button>
+  <button class="type-btn" style="--active-color: var(--color-river)" data-type="river" onclick="setDrawType('river')">
+    <span class="type-dot" style="background: var(--color-river)"></span>Rivière
+  </button>
+</div>
+
+<input type="file" id="file-input" accept=".gpx,.geojson,.json" onchange="importFile(event)">
+
+<div class="help-bar" id="help-bar">
+  <span><kbd>Clic</kbd> Poser un point</span>
+  <span><kbd>Ctrl+Z</kbd> Annuler</span>
+  <span>✂️ Tronçon = repartir d'un point</span>
+</div>
+
+<div class="panel" id="panel">
+  <div class="panel-header">
+    <h2>📂 Projets sauvegardés</h2>
+    <button class="panel-close" onclick="togglePanel()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="panel-body" id="panel-body">
+    <div class="empty-state">Aucun projet sauvegardé.</div>
+  </div>
+</div>
+
+<!-- SAVE MODAL -->
+<div class="modal-overlay" id="save-modal">
+  <div class="modal">
+    <h3>💾 Sauvegarder le projet</h3>
+    <label for="project-name">Nom du projet</label>
+    <input type="text" id="project-name" placeholder="Ex : Baou des Blancs — exploration">
+    <label for="project-desc">Description (optionnel)</label>
+    <textarea id="project-desc" placeholder="Notes, difficulté, repères..."></textarea>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSaveModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="saveProject()">Sauvegarder</button>
+    </div>
+  </div>
+</div>
+
+<!-- ANNOTATION MODAL — avec icônes prédéfinies -->
+<div class="modal-overlay" id="annotation-modal">
+  <div class="modal">
+    <h3>📍 Ajouter une annotation</h3>
+    <label>Icône</label>
+    <div class="icon-grid" id="icon-grid"></div>
+    <label for="anno-title">Titre</label>
+    <input type="text" id="anno-title" placeholder="Ex : Table de pique-nique, Moulin...">
+    <label for="anno-text">Description (optionnel)</label>
+    <textarea id="anno-text" placeholder="Détails, directions..."></textarea>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeAnnotationModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="confirmAnnotation()">Ajouter</button>
+    </div>
+  </div>
+</div>
+
+<!-- GPS COORDINATES MODAL -->
+<div class="modal-overlay" id="gps-modal">
+  <div class="modal modal-wide">
+    <h3>🌐 Coordonnées GPS du sentier</h3>
+    <div class="gps-step-row">
+      <label>Pas d'interpolation :</label>
+      <select id="gps-step" onchange="refreshGPSCoords()">
+        <option value="2">2 m (très fin)</option>
+        <option value="5" selected>5 m</option>
+        <option value="10">10 m</option>
+        <option value="20">20 m</option>
+        <option value="50">50 m</option>
+      </select>
+      <span class="gps-info" id="gps-info"></span>
+    </div>
+    <label>Format :</label>
+    <div class="gps-step-row">
+      <select id="gps-format" onchange="refreshGPSCoords()">
+        <option value="csv" selected>CSV (lat;lon)</option>
+        <option value="csv-full">CSV complet (n°;lat;lon;type;dist_m)</option>
+        <option value="decimal">Décimal (lat, lon)</option>
+        <option value="dms">DMS (degrés minutes secondes)</option>
+      </select>
+    </div>
+    <textarea class="gps-coords" id="gps-coords" readonly></textarea>
+    <div class="gps-actions">
+      <button class="btn" onclick="copyGPSCoords()">📋 Copier</button>
+      <button class="btn" onclick="downloadGPSCoords('csv')">⬇ Télécharger CSV</button>
+      <button class="btn" onclick="closeGPSModal()">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- GPS LIVE TRACKING HUD -->
+<div class="live-hud" id="live-hud">
+  <div class="live-dot"></div>
+  <span class="live-label">REC</span>
+  <div class="live-stats">
+    <span>Pts : <span class="lv" id="live-pts">0</span></span>
+    <span><span class="lv" id="live-dist">0 m</span></span>
+    <span><span class="lv" id="live-time">00:00</span></span>
+  </div>
+  <button class="live-stop" onclick="toggleLiveTracking()">⏹ Arrêter</button>
+</div>
+
+<!-- GPS HELP MODAL (affiché si file://) -->
+<div class="modal-overlay" id="gps-help-modal">
+  <div class="modal">
+    <h3>📡 GPS indisponible en mode fichier local</h3>
+    <p style="font-size:0.88rem;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      Les navigateurs mobiles <strong>bloquent la géolocalisation</strong> pour les fichiers ouverts depuis le stockage (<code>file://</code>). C'est une restriction de sécurité.
+    </p>
+    <p style="font-size:0.88rem;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      <strong>Solution :</strong> ouvre TrailForge via son lien web (HTTPS). L'appli est identique, les données restent 100% dans ton navigateur, rien ne transite sur le serveur.
+    </p>
+    <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:16px;text-align:center;">
+      <a id="gps-help-link" href="#" target="_blank" style="color:var(--accent);font-family:var(--font-mono);font-size:0.9rem;word-break:break-all;"></a>
+    </div>
+    <p style="font-size:0.8rem;color:var(--text-muted);line-height:1.5;margin-bottom:14px;">
+      💡 Astuce : sur téléphone, ouvre le lien puis « Ajouter à l'écran d'accueil » pour en faire une appli.
+    </p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeGPSHelpModal()">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIVE TRACK EXPORT MODAL -->
+<div class="modal-overlay" id="live-export-modal">
+  <div class="modal modal-wide">
+    <h3>📡 Parcours GPS enregistré</h3>
+    <div class="gps-step-row">
+      <span class="gps-info" id="live-export-info"></span>
+    </div>
+    <label>Aperçu des coordonnées :</label>
+    <textarea class="gps-coords" id="live-export-coords" readonly></textarea>
+    <div class="gps-actions">
+      <button class="btn btn-primary" onclick="exportLiveGPX()">⬇ Exporter GPX</button>
+      <button class="btn" onclick="copyLiveCoords()">📋 Copier CSV</button>
+      <button class="btn" onclick="downloadLiveCSV()">⬇ Télécharger CSV</button>
+      <button class="btn" onclick="convertLiveToTrail()">🖊 Convertir en sentier</button>
+      <button class="btn" onclick="closeLiveExportModal()">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ==================================================================
+   CONSTANTES
+   ================================================================== */
+const TYPES = {
+  'trail-ok':  { color: '#ffd94d', label: 'Praticable', dash: null },
+  'trail-bad': { color: '#ff4d4d', label: 'Impraticable', dash: '10, 6' },
+  'river':     { color: '#4da6ff', label: 'Rivière', dash: null }
+};
+
+/*  Icônes prédéfinies pour les annotations.
+    Chaque icône a un emoji, un label (pré-remplit le titre),
+    et une couleur de fond pour le marqueur sur la carte. */
+const ANNO_ICONS = [
+  { emoji: '🪑', label: 'Table pique-nique', bg: '#8B6914' },
+  { emoji: '💧', label: 'Point d\'eau / Source', bg: '#2980b9' },
+  { emoji: '⛲', label: 'Fontaine', bg: '#3498db' },
+  { emoji: '🏚️', label: 'Moulin / Ruine', bg: '#7f8c8d' },
+  { emoji: '⛪', label: 'Chapelle / Église', bg: '#8e44ad' },
+  { emoji: '👁️', label: 'Point de vue', bg: '#27ae60' },
+  { emoji: '🅿️', label: 'Parking', bg: '#2c3e50' },
+  { emoji: '⚠️', label: 'Danger / Attention', bg: '#e74c3c' },
+  { emoji: '🌳', label: 'Arbre remarquable', bg: '#27ae60' },
+  { emoji: '🪨', label: 'Rocher / Grotte', bg: '#6c757d' },
+  { emoji: '🌊', label: 'Gué / Traversée', bg: '#2980b9' },
+  { emoji: '🏔️', label: 'Sommet / Col', bg: '#546e7a' },
+  { emoji: '🐾', label: 'Faune remarquable', bg: '#a0522d' },
+  { emoji: '📍', label: 'Autre', bg: '#3dd68c' },
+];
+
+let selectedAnnoIcon = 0; // index dans ANNO_ICONS
+
+/* ==================================================================
+   STATE
+   ==================================================================
+   - trails[] : sentiers de la carte courante
+   - Chaque sentier = { id, name, segments[], annotations[] }
+   - Un segment = { points: [[lat,lng],...], type: string }
+   - Une annotation = { latlng, title, text, icon: index }
+   - leafletData[] : éléments Leaflet (markers, polylines, annoMarkers)
+   
+   MODE :
+   - 'draw'     : poser des points (prolonge le dernier segment)
+   - 'branch'   : nouveau tronçon indépendant (clic = démarrer une branche)
+   - 'annotate' : poser une annotation
+   - 'off'      : navigation seule
+   ================================================================== */
+let trails = [];
+let activeTrailIdx = 0;
+let mode = 'draw';           // 'draw' | 'branch' | 'annotate' | 'off'
+let currentType = 'trail-ok';
+let leafletData = [];
+let pendingAnnotationLatLng = null;
+let branchStarted = false;    // en mode branch, le 1er clic est posé ?
+let savedProjects = JSON.parse(localStorage.getItem('trailforge_projects') || '[]');
+
+/* ==================================================================
+   CARTE
+   ================================================================== */
+const map = L.map('map', { center: [43.7228, 7.1119], zoom: 14, zoomControl: true });
+const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a>' });
+const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+  { maxZoom: 17, attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a>' });
+const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 18, attribution: '© <a href="https://www.esri.com">Esri</a>' });
+osmLayer.addTo(map);
+L.control.layers({ '🗺️ Standard': osmLayer, '⛰️ Topographique': topoLayer, '🛰️ Satellite': satLayer },
+  null, { position: 'topright' }).addTo(map);
+map.zoomControl.setPosition('bottomright');
+
+/* ==================================================================
+   INIT — Annotation icon grid + premier sentier
+   ================================================================== */
+buildIconGrid();
+createNewTrailData('Sentier 1');
+refreshTrailSelect();
+updateCursor();
+
+/* ==================================================================
+   ICON GRID
+   ================================================================== */
+function buildIconGrid() {
+  const grid = document.getElementById('icon-grid');
+  grid.innerHTML = ANNO_ICONS.map((ic, i) =>
+    '<div class="icon-option' + (i === 0 ? ' selected' : '') + '" title="' + escapeHtml(ic.label) +
+    '" onclick="selectAnnoIcon(' + i + ')">' + ic.emoji + '</div>'
+  ).join('');
+}
+
+function selectAnnoIcon(idx) {
+  selectedAnnoIcon = idx;
+  document.querySelectorAll('.icon-option').forEach((el, i) =>
+    el.classList.toggle('selected', i === idx));
+  // Pré-remplir le titre si le champ est vide
+  const titleInput = document.getElementById('anno-title');
+  if (!titleInput.value.trim()) titleInput.value = ANNO_ICONS[idx].label;
+}
+
+/* ==================================================================
+   CLIC CARTE — dispatch selon le mode
+   ================================================================== */
+map.on('click', function(e) {
+  if (mode === 'annotate') {
+    pendingAnnotationLatLng = e.latlng;
+    selectedAnnoIcon = 0;
+    buildIconGrid();
+    document.getElementById('anno-title').value = ANNO_ICONS[0].label;
+    document.getElementById('annotation-modal').classList.add('visible');
+    document.getElementById('anno-title').focus();
+    return;
+  }
+  if (mode === 'draw') {
+    addPointContinue(e.latlng, currentType);
+    return;
+  }
+  if (mode === 'branch') {
+    addPointBranch(e.latlng, currentType);
+    return;
+  }
+});
+
+/* ==================================================================
+   MULTI-SENTIER
+   ================================================================== */
+function createNewTrailData(name) {
+  trails.push({ id: Date.now() + Math.random(), name: name, segments: [], annotations: [] });
+  leafletData.push({ markers: [], polylines: [], annoMarkers: [] });
+}
+
+function addNewTrail() {
+  createNewTrailData('Sentier ' + (trails.length + 1));
+  activeTrailIdx = trails.length - 1;
+  refreshTrailSelect(); updateStats();
+  showToast('Nouveau sentier créé');
+}
+
+function switchActiveTrail() {
+  activeTrailIdx = parseInt(document.getElementById('active-trail-select').value);
+  branchStarted = false;
+  updateStats();
+}
+
+function renameActiveTrail() {
+  var name = prompt('Nouveau nom :', trails[activeTrailIdx].name);
+  if (name && name.trim()) { trails[activeTrailIdx].name = name.trim(); refreshTrailSelect(); showToast('Renommé'); }
+}
+
+function deleteActiveTrailFromMap() {
+  if (trails.length <= 1) { showToast('Il faut au moins un sentier'); return; }
+  if (!confirm('Supprimer "' + trails[activeTrailIdx].name + '" ?')) return;
+  var ld = leafletData[activeTrailIdx];
+  ld.markers.forEach(function(m) { map.removeLayer(m); });
+  ld.polylines.forEach(function(p) { map.removeLayer(p); });
+  ld.annoMarkers.forEach(function(m) { map.removeLayer(m); });
+  trails.splice(activeTrailIdx, 1);
+  leafletData.splice(activeTrailIdx, 1);
+  activeTrailIdx = Math.min(activeTrailIdx, trails.length - 1);
+  refreshTrailSelect(); updateStats(); showToast('Sentier supprimé');
+}
+
+function refreshTrailSelect() {
+  var sel = document.getElementById('active-trail-select');
+  sel.innerHTML = trails.map(function(t, i) {
+    return '<option value="' + i + '"' + (i === activeTrailIdx ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>';
+  }).join('');
+}
+
+/* ==================================================================
+   AJOUT DE POINTS
+   ==================================================================
+   2 modes :
+   
+   MODE "DRAW" (prolonger) :
+   Le point est ajouté à la suite du dernier segment de même type,
+   ou un nouveau segment est créé (avec point de jonction) si le type
+   a changé. C'est le mode linéaire classique.
+   
+   MODE "BRANCH" (nouveau tronçon) :
+   Le premier clic après activation crée un segment tout neuf, 
+   déconnecté du tracé précédent. Les clics suivants prolongent
+   ce nouveau tronçon. Cela permet de créer des carrefours en Y, X,
+   étoile, etc. Pour repartir d'un point existant, il suffit de 
+   cliquer dessus (snap automatique à <15m).
+   ================================================================== */
+
+function addPointContinue(latlng, type) {
+  var trail = trails[activeTrailIdx];
+  var pt = [latlng.lat, latlng.lng];
+  var seg = trail.segments[trail.segments.length - 1];
+
+  if (!seg || seg.type !== type) {
+    var newSeg = { points: [], type: type };
+    if (seg && seg.points.length > 0) {
+      newSeg.points.push(seg.points[seg.points.length - 1].slice());
+    }
+    newSeg.points.push(pt);
+    trail.segments.push(newSeg);
+  } else {
+    seg.points.push(pt);
+  }
+
+  addMarkerForPoint(activeTrailIdx, pt, type);
+  redrawPolylines(activeTrailIdx);
+  updateStats();
+}
+
+function addPointBranch(latlng, type) {
+  var trail = trails[activeTrailIdx];
+  var pt = [latlng.lat, latlng.lng];
+
+  // Snap : si clic à <15m d'un point existant, on le réutilise
+  var snapped = snapToExisting(trail, latlng, 15);
+  if (snapped) pt = snapped.slice();
+
+  if (!branchStarted) {
+    // Premier clic → nouveau segment indépendant
+    trail.segments.push({ points: [pt], type: type });
+    branchStarted = true;
+    addMarkerForPoint(activeTrailIdx, pt, type);
+    showToast('Tronçon démarré — continuez à cliquer');
+  } else {
+    // Clics suivants → prolonger ce dernier segment
+    var seg = trail.segments[trail.segments.length - 1];
+    if (seg.type !== type) {
+      var newSeg = { points: [seg.points[seg.points.length - 1].slice(), pt], type: type };
+      trail.segments.push(newSeg);
+    } else {
+      seg.points.push(pt);
+    }
+    addMarkerForPoint(activeTrailIdx, pt, type);
+  }
+
+  redrawPolylines(activeTrailIdx);
+  updateStats();
+}
+
+/* Snap : cherche un point existant dans le sentier à moins de `dist` mètres */
+function snapToExisting(trail, latlng, dist) {
+  var best = null, bestD = dist;
+  trail.segments.forEach(function(seg) {
+    seg.points.forEach(function(p) {
+      var d = latlng.distanceTo(L.latLng(p[0], p[1]));
+      if (d < bestD) { bestD = d; best = p; }
+    });
+  });
+  return best;
+}
+
+function addMarkerForPoint(trailIdx, pt, type) {
+  var ld = leafletData[trailIdx];
+  var color = TYPES[type].color;
+  var marker = L.circleMarker(pt, {
+    radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2
+  }).addTo(map);
+  marker.on('click', function(e) {
+    L.DomEvent.stopPropagation(e);
+    removePointFromTrail(trailIdx, marker);
+  });
+  ld.markers.push(marker);
+}
+
+function removePointFromTrail(trailIdx, marker) {
+  var trail = trails[trailIdx];
+  var ld = leafletData[trailIdx];
+  var mIdx = ld.markers.indexOf(marker);
+  if (mIdx < 0) return;
+  var ll = marker.getLatLng();
+  var target = [ll.lat, ll.lng];
+
+  trail.segments.forEach(function(seg) {
+    seg.points = seg.points.filter(function(p) {
+      return Math.abs(p[0] - target[0]) > 1e-8 || Math.abs(p[1] - target[1]) > 1e-8;
+    });
+  });
+  trail.segments = trail.segments.filter(function(s) { return s.points.length >= 1; });
+  map.removeLayer(marker);
+  ld.markers.splice(mIdx, 1);
+  redrawPolylines(trailIdx);
+  updateStats();
+  showToast('Point supprimé');
+}
+
+function undoLastPoint() {
+  var ld = leafletData[activeTrailIdx];
+  if (ld.markers.length === 0) return;
+  removePointFromTrail(activeTrailIdx, ld.markers[ld.markers.length - 1]);
+}
+
+function clearActiveTrail() {
+  var trail = trails[activeTrailIdx];
+  var ld = leafletData[activeTrailIdx];
+  if (ld.markers.length === 0 && ld.annoMarkers.length === 0) return;
+  ld.markers.forEach(function(m) { map.removeLayer(m); });
+  ld.polylines.forEach(function(p) { map.removeLayer(p); });
+  ld.annoMarkers.forEach(function(m) { map.removeLayer(m); });
+  ld.markers = []; ld.polylines = []; ld.annoMarkers = [];
+  trail.segments = []; trail.annotations = [];
+  branchStarted = false;
+  updateStats(); showToast('Sentier effacé');
+}
+
+/* ==================================================================
+   POLYLINES
+   ================================================================== */
+function redrawPolylines(trailIdx) {
+  var trail = trails[trailIdx];
+  var ld = leafletData[trailIdx];
+  ld.polylines.forEach(function(p) { map.removeLayer(p); });
+  ld.polylines = [];
+  trail.segments.forEach(function(seg) {
+    if (seg.points.length < 2) return;
+    var t = TYPES[seg.type] || TYPES['trail-ok'];
+    var opts = { color: t.color, weight: 4, opacity: 0.9, lineJoin: 'round', lineCap: 'round' };
+    if (t.dash) opts.dashArray = t.dash;
+    var line = L.polyline(seg.points, opts).addTo(map);
+    ld.polylines.push(line);
+  });
+}
+
+/* ==================================================================
+   ANNOTATIONS avec icônes
+   ================================================================== */
+function closeAnnotationModal() {
+  document.getElementById('annotation-modal').classList.remove('visible');
+  pendingAnnotationLatLng = null;
+}
+
+function confirmAnnotation() {
+  var title = document.getElementById('anno-title').value.trim() || ANNO_ICONS[selectedAnnoIcon].label;
+  var text = document.getElementById('anno-text').value.trim();
+  if (!pendingAnnotationLatLng) return;
+
+  var trail = trails[activeTrailIdx];
+  var anno = {
+    latlng: [pendingAnnotationLatLng.lat, pendingAnnotationLatLng.lng],
+    title: title, text: text, icon: selectedAnnoIcon
+  };
+  trail.annotations.push(anno);
+  addAnnotationMarker(activeTrailIdx, anno, trail.annotations.length - 1);
+
+  document.getElementById('anno-title').value = '';
+  document.getElementById('anno-text').value = '';
+  closeAnnotationModal();
+  showToast(ANNO_ICONS[selectedAnnoIcon].emoji + ' "' + title + '" ajouté');
+}
+
+function addAnnotationMarker(trailIdx, anno, annoIdx) {
+  var ld = leafletData[trailIdx];
+  var ic = ANNO_ICONS[anno.icon || 0] || ANNO_ICONS[ANNO_ICONS.length - 1];
+
+  var icon = L.divIcon({
+    className: '',
+    html: '<div style="width:32px;height:32px;background:' + ic.bg +
+      ';border:2px solid rgba(255,255,255,0.4);border-radius:50% 50% 50% 0;' +
+      'transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;' +
+      'box-shadow:0 2px 10px rgba(0,0,0,0.4);">' +
+      '<span style="transform:rotate(45deg);font-size:15px;">' + ic.emoji + '</span></div>',
+    iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -34]
+  });
+
+  var marker = L.marker(anno.latlng, { icon: icon }).addTo(map);
+  var html = '<div class="popup-annotation">' +
+    '<div class="popup-icon">' + ic.emoji + '</div>' +
+    '<h4>' + escapeHtml(anno.title) + '</h4>' +
+    (anno.text ? '<p>' + escapeHtml(anno.text) + '</p>' : '') +
+    '<div class="popup-actions">' +
+    '<button onclick="editAnnotation(' + trailIdx + ',' + annoIdx + ')">Modifier</button>' +
+    '<button onclick="deleteAnnotation(' + trailIdx + ',' + annoIdx + ')">Supprimer</button>' +
+    '</div></div>';
+  marker.bindPopup(html, { maxWidth: 260 });
+  ld.annoMarkers.push(marker);
+}
+
+function editAnnotation(trailIdx, annoIdx) {
+  var anno = trails[trailIdx].annotations[annoIdx];
+  if (!anno) return;
+  var t = prompt('Titre :', anno.title);
+  if (t === null) return;
+  var d = prompt('Description :', anno.text);
+  if (d === null) return;
+  anno.title = t.trim() || anno.title;
+  anno.text = d.trim();
+  rebuildAnnotations(trailIdx);
+  showToast('Annotation modifiée');
+}
+
+function deleteAnnotation(trailIdx, annoIdx) {
+  trails[trailIdx].annotations.splice(annoIdx, 1);
+  rebuildAnnotations(trailIdx);
+  showToast('Annotation supprimée');
+}
+
+function rebuildAnnotations(trailIdx) {
+  var ld = leafletData[trailIdx];
+  ld.annoMarkers.forEach(function(m) { map.removeLayer(m); });
+  ld.annoMarkers = [];
+  trails[trailIdx].annotations.forEach(function(a, i) { addAnnotationMarker(trailIdx, a, i); });
+}
+
+/* ==================================================================
+   MODES — un seul mode actif à la fois
+   ================================================================== */
+function setMode(m) {
+  mode = m;
+  branchStarted = false;
+  document.getElementById('btn-draw').className = (m === 'draw') ? 'active' : '';
+  document.getElementById('btn-branch').className = (m === 'branch') ? 'active-blue' : '';
+  document.getElementById('btn-annotate').className = (m === 'annotate') ? 'active-green' : '';
+  updateCursor();
+  if (m === 'branch') showToast('Cliquez pour démarrer un nouveau tronçon');
+}
+
+function setDrawType(type) {
+  currentType = type;
+  document.querySelectorAll('.type-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.type === type);
+  });
+  if (mode === 'annotate') setMode('draw');
+}
+
+function updateCursor() {
+  map.getContainer().classList.toggle('drawing-mode', mode !== 'off');
+}
+
+/* ==================================================================
+   STATS
+   ================================================================== */
+function updateStats() {
+  var trail = trails[activeTrailIdx];
+  if (!trail) return;
+  var pts = 0, segs = 0;
+  trail.segments.forEach(function(s) { pts += s.points.length; segs += Math.max(0, s.points.length - 1); });
+  document.getElementById('stat-points').textContent = pts;
+  document.getElementById('stat-segments').textContent = segs;
+  document.getElementById('stat-distance').textContent = formatDistance(calcTrailDistance(trail));
+}
+
+function calcTrailDistance(trail) {
+  // Seuls les sentiers praticables et impraticables comptent.
+  // Les rivières sont exclues du calcul de distance.
+  var total = 0;
+  trail.segments.forEach(function(seg) {
+    if (seg.type === 'river') return; // ← on ignore les rivières
+    for (var i = 1; i < seg.points.length; i++)
+      total += L.latLng(seg.points[i-1]).distanceTo(L.latLng(seg.points[i]));
+  });
+  return total;
+}
+
+function formatDistance(m) {
+  if (m < 1000) return Math.round(m) + ' m';
+  return (m / 1000).toFixed(2) + ' km';
+}
+
+/* ==================================================================
+   RACCOURCIS
+   ================================================================== */
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undoLastPoint(); }
+  if (e.key === 'Escape') {
+    closeSaveModal(); closeAnnotationModal(); closeGPSModal(); closeLiveExportModal(); closeGPSHelpModal();
+    if (document.getElementById('panel').classList.contains('open')) togglePanel();
+  }
+});
+
+/* ==================================================================
+   SAUVEGARDE / CHARGEMENT
+   ==================================================================
+   FIX : on fait un deep copy (JSON parse/stringify) pour éviter
+   les bugs de références. Au chargement, on nettoie l'état initial
+   (le Sentier 1 vide créé au démarrage).
+   ================================================================== */
+function openSaveModal() {
+  var hasData = trails.some(function(t) {
+    return t.segments.some(function(s) { return s.points.length > 0; }) || t.annotations.length > 0;
+  });
+  if (!hasData) { showToast("Rien à sauvegarder"); return; }
+  document.getElementById('save-modal').classList.add('visible');
+  document.getElementById('project-name').focus();
+}
+function closeSaveModal() { document.getElementById('save-modal').classList.remove('visible'); }
+
+function saveProject() {
+  var name = document.getElementById('project-name').value.trim() || 'Projet sans nom';
+  var desc = document.getElementById('project-desc').value.trim();
+
+  // Deep copy EXPLICITE — on recopie chaque champ pour garantir
+  // que le type de chaque segment est bien sauvegardé
+  var trailsCopy = trails.map(function(t) {
+    return {
+      name: t.name,
+      segments: t.segments.map(function(seg) {
+        return {
+          type: seg.type || 'trail-ok',
+          points: seg.points.map(function(p) { return [p[0], p[1]]; })
+        };
+      }),
+      annotations: (t.annotations || []).map(function(a) {
+        return { latlng: [a.latlng[0], a.latlng[1]], title: a.title, text: a.text, icon: a.icon || 0 };
+      })
+    };
+  });
+
+  savedProjects.push({
+    id: Date.now(), name: name, description: desc,
+    createdAt: new Date().toISOString(),
+    trails: trailsCopy
+  });
+  localStorage.setItem('trailforge_projects', JSON.stringify(savedProjects));
+  document.getElementById('project-name').value = '';
+  document.getElementById('project-desc').value = '';
+  closeSaveModal(); refreshPanel();
+  showToast('"' + name + '" sauvegardé ✓');
+}
+
+function loadProject(id) {
+  var proj = savedProjects.find(function(p) { return p.id === id; });
+  if (!proj) return;
+
+  // Nettoyer TOUT (y compris le sentier initial)
+  clearAllFromMap();
+  trails = [];
+  leafletData = [];
+
+  proj.trails.forEach(function(t, idx) {
+    createNewTrailData(t.name);
+
+    // Recopier chaque segment EXPLICITEMENT avec son type
+    trails[idx].segments = (t.segments || []).map(function(seg) {
+      return {
+        type: seg.type || 'trail-ok',
+        points: (seg.points || []).map(function(p) { return [p[0], p[1]]; })
+      };
+    });
+    trails[idx].annotations = (t.annotations || []).map(function(a) {
+      return { latlng: [a.latlng[0], a.latlng[1]], title: a.title, text: a.text, icon: a.icon || 0 };
+    });
+
+    // Diagnostic : vérifier les types restaurés
+    console.log('[TrailForge] Sentier "' + t.name + '" chargé — segments :',
+      trails[idx].segments.map(function(s) { return s.type + ' (' + s.points.length + ' pts)'; }));
+
+    // Redessiner les polylines avec les bons types/couleurs
+    redrawPolylines(idx);
+
+    // Recréer les marqueurs de points — couleur selon le type du segment
+    var ld = leafletData[idx];
+    trails[idx].segments.forEach(function(seg) {
+      var typeInfo = TYPES[seg.type] || TYPES['trail-ok'];
+      seg.points.forEach(function(p) {
+        var m = L.circleMarker(p, {
+          radius: 5, color: typeInfo.color, fillColor: typeInfo.color, fillOpacity: 0.9, weight: 2
+        }).addTo(map);
+        (function(tidx, marker) {
+          marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
+        })(idx, m);
+        ld.markers.push(m);
+      });
+    });
+
+    // Recréer les annotations
+    trails[idx].annotations.forEach(function(a, i) { addAnnotationMarker(idx, a, i); });
+  });
+
+  activeTrailIdx = 0;
+  branchStarted = false;
+  refreshTrailSelect(); updateStats(); fitMapToAll();
+  showToast('"' + proj.name + '" chargé');
+}
+
+function deleteProject(id) {
+  savedProjects = savedProjects.filter(function(p) { return p.id !== id; });
+  localStorage.setItem('trailforge_projects', JSON.stringify(savedProjects));
+  refreshPanel(); showToast('Projet supprimé');
+}
+
+function clearAllFromMap() {
+  leafletData.forEach(function(ld) {
+    ld.markers.forEach(function(m) { map.removeLayer(m); });
+    ld.polylines.forEach(function(p) { map.removeLayer(p); });
+    ld.annoMarkers.forEach(function(m) { map.removeLayer(m); });
+  });
+  trails = []; leafletData = [];
+}
+
+function fitMapToAll() {
+  var allPts = [];
+  trails.forEach(function(t) {
+    t.segments.forEach(function(s) { s.points.forEach(function(p) { allPts.push(p); }); });
+    t.annotations.forEach(function(a) { allPts.push(a.latlng); });
+  });
+  if (allPts.length >= 2) map.fitBounds(L.latLngBounds(allPts), { padding: [40, 40] });
+}
+
+/* ==================================================================
+   PANEL
+   ================================================================== */
+function togglePanel() { document.getElementById('panel').classList.toggle('open'); refreshPanel(); }
+
+function refreshPanel() {
+  var body = document.getElementById('panel-body');
+  if (savedProjects.length === 0) {
+    body.innerHTML = '<div class="empty-state">Aucun projet sauvegardé.</div>';
+    return;
+  }
+  body.innerHTML = savedProjects.map(function(p) {
+    var date = new Date(p.createdAt).toLocaleDateString('fr-FR');
+    var nbT = p.trails.length;
+    var nbP = p.trails.reduce(function(n, t) { return n + t.segments.reduce(function(m, s) { return m + s.points.length; }, 0); }, 0);
+    var nbA = p.trails.reduce(function(n, t) { return n + (t.annotations ? t.annotations.length : 0); }, 0);
+    return '<div class="trail-card"><div class="trail-name">' + escapeHtml(p.name) + '</div>' +
+      '<div class="trail-meta"><span>' + nbT + ' sentier' + (nbT > 1 ? 's' : '') + '</span><span>' + nbP + ' pts</span>' +
+      (nbA ? '<span>' + nbA + ' 📍</span>' : '') + '<span>' + date + '</span></div>' +
+      (p.description ? '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px">' + escapeHtml(p.description) + '</div>' : '') +
+      '<div class="trail-card-actions"><button onclick="loadProject(' + p.id + ')">Charger</button>' +
+      '<button onclick="exportProjectGPX(' + p.id + ')">GPX</button>' +
+      '<button class="delete" onclick="event.stopPropagation();deleteProject(' + p.id + ')">Supprimer</button></div></div>';
+  }).join('');
+}
+
+/* ==================================================================
+   EXPORT GPX — balise <name> corrigée (était <n>)
+   ================================================================== */
+function exportAllGPX() {
+  if (!trails.some(function(t) { return t.segments.some(function(s) { return s.points.length > 0; }); })) {
+    showToast('Rien à exporter'); return;
+  }
+  downloadProjectGPX(trails, 'trailforge_export');
+}
+
+function exportProjectGPX(id) {
+  var proj = savedProjects.find(function(p) { return p.id === id; });
+  if (!proj) return;
+  downloadProjectGPX(proj.trails, proj.name.replace(/\s+/g, '_'));
+}
+
+function downloadProjectGPX(trailsData, filename) {
+  var wpts = '', trks = '';
+  trailsData.forEach(function(t) {
+    (t.annotations || []).forEach(function(a) {
+      var ic = ANNO_ICONS[a.icon || 0] || ANNO_ICONS[ANNO_ICONS.length - 1];
+      wpts += '  <wpt lat="' + a.latlng[0] + '" lon="' + a.latlng[1] + '">\n';
+      wpts += '    <name>' + escapeXml(ic.emoji + ' ' + a.title) + '</name>\n';
+      if (a.text) wpts += '    <desc>' + escapeXml(a.text) + '</desc>\n';
+      wpts += '  </wpt>\n';
+    });
+    trks += '  <trk>\n    <name>' + escapeXml(t.name) + '</name>\n';
+    t.segments.forEach(function(seg) {
+      if (seg.points.length === 0) return;
+      var segType = seg.type || 'trail-ok';
+      trks += '    <trkseg>\n';
+      // Méthode 1 (robuste) : extension GPX standard — survit à tous les parsers
+      trks += '      <extensions><tf:type>' + segType + '</tf:type></extensions>\n';
+      // Méthode 2 (fallback) : commentaire XML
+      trks += '      <!-- type:' + segType + ' -->\n';
+      seg.points.forEach(function(p) { trks += '      <trkpt lat="' + p[0] + '" lon="' + p[1] + '"></trkpt>\n'; });
+      trks += '    </trkseg>\n';
+    });
+    trks += '  </trk>\n';
+  });
+  // Namespace tf: pour les extensions TrailForge
+  var gpx = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:tf="http://trailforge.app/gpx/1"' +
+    ' version="1.1" creator="TrailForge">\n' + wpts + trks + '</gpx>';
+  var blob = new Blob([gpx], { type: 'application/gpx+xml' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href = url; a.download = filename + '.gpx'; a.click();
+  URL.revokeObjectURL(url);
+  showToast('GPX téléchargé ✓');
+}
+
+/* ==================================================================
+   IMPORT
+   ================================================================== */
+function importFile(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      if (file.name.endsWith('.gpx')) importGPX(e.target.result);
+      else if (file.name.endsWith('.geojson') || file.name.endsWith('.json')) importGeoJSON(e.target.result);
+      else showToast('Format non supporté');
+    } catch (err) { showToast('Erreur de lecture'); console.error(err); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+/* Supprime les sentiers vides (0 point, 0 annotation) avant un import,
+   pour éviter le "Sentier 1" fantôme à 0 m */
+function removeEmptyTrails() {
+  for (var i = trails.length - 1; i >= 0; i--) {
+    var hasPoints = trails[i].segments.some(function(s) { return s.points.length > 0; });
+    var hasAnnos = trails[i].annotations.length > 0;
+    if (!hasPoints && !hasAnnos) {
+      var ld = leafletData[i];
+      ld.markers.forEach(function(m) { map.removeLayer(m); });
+      ld.polylines.forEach(function(p) { map.removeLayer(p); });
+      ld.annoMarkers.forEach(function(m) { map.removeLayer(m); });
+      trails.splice(i, 1);
+      leafletData.splice(i, 1);
+    }
+  }
+}
+
+function importGPX(xmlText) {
+  removeEmptyTrails();
+  var xml = new DOMParser().parseFromString(xmlText, 'text/xml');
+  var trks = xml.querySelectorAll('trk');
+  if (trks.length === 0) { showToast('Aucune piste GPX'); return; }
+
+  trks.forEach(function(trk) {
+    var nameEl = trk.querySelector('name');
+    var name = nameEl ? nameEl.textContent : 'Import GPX';
+    var trailIdx = trails.length;
+    createNewTrailData(name);
+
+    trk.querySelectorAll('trkseg').forEach(function(seg) {
+      var pts = [];
+      var type = 'trail-ok';
+      // Méthode 1 : lire depuis l'extension GPX <tf:type> (robuste)
+      var extEl = seg.querySelector('extensions');
+      if (extEl) {
+        // Chercher tf:type ou type dans les enfants de extensions
+        var typeEl = extEl.querySelector('type') || extEl.getElementsByTagName('tf:type')[0];
+        if (typeEl && typeEl.textContent && TYPES[typeEl.textContent.trim()]) {
+          type = typeEl.textContent.trim();
+        }
+      }
+      // Méthode 2 (fallback) : lire depuis le commentaire XML
+      if (type === 'trail-ok' && !extEl) {
+        var comments = seg.childNodes;
+        for (var i = 0; i < comments.length; i++) {
+          if (comments[i].nodeType === 8) {
+            var match = comments[i].textContent.match(/type:(\S+)/);
+            if (match && TYPES[match[1]]) type = match[1];
+          }
+        }
+      }
+      seg.querySelectorAll('trkpt').forEach(function(pt) {
+        var lat = parseFloat(pt.getAttribute('lat'));
+        var lon = parseFloat(pt.getAttribute('lon'));
+        if (!isNaN(lat) && !isNaN(lon)) pts.push([lat, lon]);
+      });
+      if (pts.length > 0) trails[trailIdx].segments.push({ points: pts, type: type });
+    });
+
+    redrawPolylines(trailIdx);
+    var ld = leafletData[trailIdx];
+    trails[trailIdx].segments.forEach(function(seg) {
+      var color = (TYPES[seg.type] || TYPES['trail-ok']).color;
+      seg.points.forEach(function(p) {
+        var m = L.circleMarker(p, { radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2 }).addTo(map);
+        (function(tidx, marker) {
+          marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
+        })(trailIdx, m);
+        ld.markers.push(m);
+      });
+    });
+  });
+
+  // Waypoints → annotations
+  xml.querySelectorAll('wpt').forEach(function(wpt) {
+    var lat = parseFloat(wpt.getAttribute('lat'));
+    var lon = parseFloat(wpt.getAttribute('lon'));
+    var n = wpt.querySelector('name');
+    var d = wpt.querySelector('desc');
+    if (!isNaN(lat) && !isNaN(lon)) {
+      var tIdx = trails.length - 1;
+      var title = n ? n.textContent : 'Waypoint';
+      // Essayer de retrouver l'icône depuis l'emoji en début de titre
+      var iconIdx = 13; // default = 📍
+      ANNO_ICONS.forEach(function(ic, i) {
+        if (title.startsWith(ic.emoji)) { iconIdx = i; title = title.substring(ic.emoji.length).trim(); }
+      });
+      var anno = { latlng: [lat, lon], title: title, text: d ? d.textContent : '', icon: iconIdx };
+      trails[tIdx].annotations.push(anno);
+      addAnnotationMarker(tIdx, anno, trails[tIdx].annotations.length - 1);
+    }
+  });
+
+  activeTrailIdx = trails.length - 1;
+  branchStarted = false;
+  refreshTrailSelect(); updateStats(); fitMapToAll();
+  showToast('GPX importé ✓');
+}
+
+function importGeoJSON(jsonText) {
+  removeEmptyTrails();
+  var data = JSON.parse(jsonText);
+  var coords = [];
+  if (data.type === 'LineString') coords = data.coordinates;
+  else if (data.type === 'Feature' && data.geometry && data.geometry.type === 'LineString') coords = data.geometry.coordinates;
+  else if (data.type === 'FeatureCollection') {
+    var f = (data.features || []).find(function(f) { return f.geometry && f.geometry.type === 'LineString'; });
+    if (f) coords = f.geometry.coordinates;
+  }
+  if (coords.length === 0) { showToast('Aucune ligne GeoJSON'); return; }
+
+  var trailIdx = trails.length;
+  createNewTrailData('Import GeoJSON');
+  var pts = coords.map(function(c) { return [c[1], c[0]]; });
+  trails[trailIdx].segments.push({ points: pts, type: 'trail-ok' });
+  redrawPolylines(trailIdx);
+  var ld = leafletData[trailIdx];
+  var color = TYPES['trail-ok'].color;
+  pts.forEach(function(p) {
+    var m = L.circleMarker(p, { radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2 }).addTo(map);
+    (function(tidx, marker) {
+      marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
+    })(trailIdx, m);
+    ld.markers.push(m);
+  });
+  activeTrailIdx = trailIdx;
+  branchStarted = false;
+  refreshTrailSelect(); updateStats(); fitMapToAll();
+  showToast('GeoJSON importé ✓');
+}
+
+/* ==================================================================
+   GPS LIVE TRACKING — Tracé en direct
+   ==================================================================
+   Utilise l'API Geolocation du navigateur pour enregistrer la
+   position de l'utilisateur en temps réel. Le tracé s'affiche
+   en noir sur la carte. À l'arrêt, l'utilisateur peut exporter
+   le parcours en GPX ou CSV, ou le convertir en sentier.
+   
+   navigator.geolocation.watchPosition() envoie une position
+   dès que le GPS du téléphone/PC la rafraîchit (typiquement
+   toutes les 1-5 secondes en mouvement).
+   ================================================================== */
+
+var liveTracking = {
+  active: false,         // enregistrement en cours ?
+  watchId: null,         // ID retourné par watchPosition (pour l'arrêter)
+  points: [],            // tableau de { lat, lon, timestamp, accuracy }
+  polyline: null,        // polyline Leaflet noire affichée sur la carte
+  posMarker: null,       // marqueur "position actuelle" (point bleu)
+  startTime: null,       // Date de début
+  timerInterval: null,   // setInterval pour le chrono
+  totalDist: 0,          // distance cumulée en mètres
+};
+
+function toggleLiveTracking() {
+  if (liveTracking.active) {
+    stopLiveTracking();
+  } else {
+    startLiveTracking();
+  }
+}
+
+function startLiveTracking() {
+  // 1) Le navigateur supporte-t-il la géolocalisation ?
+  if (!navigator.geolocation) {
+    showToast('Géolocalisation non supportée par ce navigateur');
+    return;
+  }
+
+  // 2) Détecter si on est en file:// (pas de GPS possible sur mobile)
+  if (window.location.protocol === 'file:') {
+    showGPSHelp();
+    return;
+  }
+
+  // 3) Tester d'abord avec getCurrentPosition AVANT de lancer
+  //    l'enregistrement. Cela déclenche la popup de permission
+  //    du navigateur et vérifie que le GPS fonctionne.
+  showToast('Recherche du signal GPS\u2026');
+  document.getElementById('btn-live').className = 'active-live';
+
+  navigator.geolocation.getCurrentPosition(
+    function onTestOK(pos) {
+      // Le GPS fonctionne ! On démarre l'enregistrement réel.
+      actuallyStartLiveTracking(pos);
+    },
+    function onTestFail(err) {
+      // Échec : on remet le bouton normal et on affiche l'erreur
+      document.getElementById('btn-live').className = '';
+      if (err.code === 1) {
+        showToast('Permission GPS refusée \u2014 active la localisation dans les paramètres');
+      } else if (err.code === 2) {
+        showToast('Signal GPS indisponible (pas de capteur GPS sur cet appareil ?)');
+      } else {
+        showToast('Délai GPS dépassé \u2014 réessaie en extérieur');
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+  );
+}
+
+/**
+ * Appelé uniquement après un getCurrentPosition réussi.
+ * La première position est passée en paramètre pour ne pas la perdre.
+ */
+function actuallyStartLiveTracking(firstPos) {
+  liveTracking.active = true;
+  liveTracking.points = [];
+  liveTracking.totalDist = 0;
+  liveTracking.startTime = new Date();
+
+  // Afficher le HUD (bandeau REC en bas)
+  document.getElementById('live-hud').classList.add('visible');
+  updateLiveHUD();
+
+  // Chrono toutes les secondes
+  liveTracking.timerInterval = setInterval(updateLiveTimer, 1000);
+
+  // Polyline noire pour le tracé live
+  liveTracking.polyline = L.polyline([], {
+    color: '#111111', weight: 5, opacity: 0.85,
+    lineJoin: 'round', lineCap: 'round'
+  }).addTo(map);
+
+  // Marqueur "position actuelle" (cercle bleu)
+  liveTracking.posMarker = L.circleMarker([0, 0], {
+    radius: 8, color: '#ffffff', fillColor: '#3388ff',
+    fillOpacity: 1, weight: 3
+  });
+
+  // Enregistrer la première position (déjà obtenue par le test)
+  onLivePosition(firstPos);
+
+  // Démarrer le suivi continu
+  liveTracking.watchId = navigator.geolocation.watchPosition(
+    onLivePosition,
+    onLiveError,
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+  );
+
+  showToast('Enregistrement GPS démarré \u2014 déplace-toi !');
+}
+
+function onLivePosition(pos) {
+  if (!liveTracking.active) return;
+
+  var lat = pos.coords.latitude;
+  var lon = pos.coords.longitude;
+  var acc = pos.coords.accuracy; // en mètres
+
+  // Le premier point est toujours accepté (même imprécis sur PC),
+  // les suivants sont filtrés si précision > 100m
+  if (liveTracking.points.length > 0 && acc > 100) return;
+
+  var pt = { lat: lat, lon: lon, timestamp: pos.timestamp, accuracy: acc };
+
+  // Calculer la distance par rapport au point précédent
+  if (liveTracking.points.length > 0) {
+    var prev = liveTracking.points[liveTracking.points.length - 1];
+    var d = L.latLng(prev.lat, prev.lon).distanceTo(L.latLng(lat, lon));
+    
+    // Ignorer les micro-mouvements < 2m (bruit GPS en stationnaire)
+    if (d < 2) return;
+    
+    liveTracking.totalDist += d;
+  }
+
+  liveTracking.points.push(pt);
+
+  // Mettre à jour la polyline sur la carte
+  liveTracking.polyline.addLatLng([lat, lon]);
+
+  // Mettre à jour le marqueur de position
+  liveTracking.posMarker.setLatLng([lat, lon]);
+  if (!map.hasLayer(liveTracking.posMarker)) {
+    liveTracking.posMarker.addTo(map);
+  }
+
+  // Centrer la carte sur la position (suivi fluide)
+  map.panTo([lat, lon], { animate: true, duration: 0.5 });
+
+  updateLiveHUD();
+}
+
+function onLiveError(err) {
+  if (!liveTracking.active) return;
+  // Ne PAS arrêter l'enregistrement sauf si la permission est révoquée.
+  // Le GPS peut avoir des trous temporaires (tunnel, intérieur…).
+  if (err.code === 1) {
+    showToast('Permission GPS révoquée');
+    stopLiveTracking();
+  } else if (err.code === 2) {
+    showToast('Signal GPS perdu momentanément\u2026');
+  }
+  // code === 3 (timeout) : normal en intérieur, on ignore silencieusement
+}
+
+function stopLiveTracking() {
+  var wasActive = liveTracking.active;
+  liveTracking.active = false;
+
+  // Arrêter le suivi
+  if (liveTracking.watchId !== null) {
+    navigator.geolocation.clearWatch(liveTracking.watchId);
+    liveTracking.watchId = null;
+  }
+
+  // Arrêter le chrono
+  if (liveTracking.timerInterval) {
+    clearInterval(liveTracking.timerInterval);
+    liveTracking.timerInterval = null;
+  }
+
+  // Reset bouton toolbar
+  document.getElementById('btn-live').className = '';
+
+  // Masquer le HUD
+  document.getElementById('live-hud').classList.remove('visible');
+
+  // Retirer le marqueur de position
+  if (liveTracking.posMarker && map.hasLayer(liveTracking.posMarker)) {
+    map.removeLayer(liveTracking.posMarker);
+  }
+
+  // Ouvrir le modal d'export si on a des points
+  if (liveTracking.points.length >= 2) {
+    openLiveExportModal();
+  } else if (wasActive) {
+    showToast('Enregistrement arrêté \u2014 pas assez de déplacements détectés');
+    if (liveTracking.polyline && map.hasLayer(liveTracking.polyline)) {
+      map.removeLayer(liveTracking.polyline);
+    }
+  }
+}
+
+function updateLiveHUD() {
+  document.getElementById('live-pts').textContent = liveTracking.points.length;
+  document.getElementById('live-dist').textContent = formatDistance(liveTracking.totalDist);
+}
+
+function updateLiveTimer() {
+  if (!liveTracking.startTime) return;
+  var elapsed = Math.floor((Date.now() - liveTracking.startTime.getTime()) / 1000);
+  var mm = Math.floor(elapsed / 60);
+  var ss = elapsed % 60;
+  var hh = Math.floor(mm / 60);
+  mm = mm % 60;
+  var str = (hh > 0 ? (hh < 10 ? '0' : '') + hh + ':' : '') +
+    (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
+  document.getElementById('live-time').textContent = str;
+}
+
+/* ==================================================================
+   LIVE EXPORT MODAL
+   ================================================================== */
+/* ==================================================================
+   GPS HELP MODAL — affiché si le fichier est ouvert en file://
+   ================================================================== */
+// URL de la version hébergée (à personnaliser après déploiement)
+var TRAILFORGE_URL = 'https://VOTRE-NOM.github.io/trailforge/';
+
+function showGPSHelp() {
+  var link = document.getElementById('gps-help-link');
+  link.href = TRAILFORGE_URL;
+  link.textContent = TRAILFORGE_URL;
+  document.getElementById('gps-help-modal').classList.add('visible');
+}
+
+function closeGPSHelpModal() {
+  document.getElementById('gps-help-modal').classList.remove('visible');
+}
+
+/* ==================================================================
+   LIVE EXPORT MODAL
+   ================================================================== */
+function openLiveExportModal() {
+  var pts = liveTracking.points;
+  var info = pts.length + ' points — ' + formatDistance(liveTracking.totalDist);
+  if (liveTracking.startTime) {
+    var elapsed = Math.floor((Date.now() - liveTracking.startTime.getTime()) / 1000);
+    var mm = Math.floor(elapsed / 60);
+    var ss = elapsed % 60;
+    info += ' — durée ' + mm + 'min ' + (ss < 10 ? '0' : '') + ss + 's';
+  }
+  document.getElementById('live-export-info').textContent = info;
+
+  // Générer CSV
+  var csv = 'n;lat;lon;accuracy_m;dist_cumul_m\n';
+  var cumul = 0;
+  pts.forEach(function(p, i) {
+    if (i > 0) {
+      cumul += L.latLng(pts[i-1].lat, pts[i-1].lon).distanceTo(L.latLng(p.lat, p.lon));
+    }
+    csv += (i+1) + ';' + p.lat.toFixed(7) + ';' + p.lon.toFixed(7) + ';' +
+      p.accuracy.toFixed(1) + ';' + cumul.toFixed(1) + '\n';
+  });
+  document.getElementById('live-export-coords').value = csv;
+
+  document.getElementById('live-export-modal').classList.add('visible');
+}
+
+function closeLiveExportModal() {
+  document.getElementById('live-export-modal').classList.remove('visible');
+  // Nettoyer la polyline live si on ferme
+  if (liveTracking.polyline && map.hasLayer(liveTracking.polyline)) {
+    map.removeLayer(liveTracking.polyline);
+  }
+}
+
+function exportLiveGPX() {
+  var pts = liveTracking.points;
+  if (pts.length < 2) { showToast('Pas assez de points'); return; }
+
+  var trkpts = pts.map(function(p) {
+    var time = new Date(p.timestamp).toISOString();
+    return '      <trkpt lat="' + p.lat.toFixed(7) + '" lon="' + p.lon.toFixed(7) + '">' +
+      '<time>' + time + '</time></trkpt>';
+  }).join('\n');
+
+  var gpx = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="TrailForge Live">\n' +
+    '  <trk>\n    <name>Parcours GPS Live — ' + new Date().toLocaleDateString('fr-FR') + '</name>\n' +
+    '    <trkseg>\n' + trkpts + '\n    </trkseg>\n  </trk>\n</gpx>';
+
+  var blob = new Blob([gpx], { type: 'application/gpx+xml' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'trailforge_live_' + Date.now() + '.gpx'; a.click();
+  URL.revokeObjectURL(url);
+  showToast('GPX Live exporté ✓');
+}
+
+function copyLiveCoords() {
+  var textarea = document.getElementById('live-export-coords');
+  textarea.select();
+  document.execCommand('copy');
+  showToast('Coordonnées copiées ✓');
+}
+
+function downloadLiveCSV() {
+  var text = document.getElementById('live-export-coords').value;
+  var blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'trailforge_live_' + Date.now() + '.csv'; a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSV téléchargé ✓');
+}
+
+/**
+ * Convertir le tracé live en sentier TrailForge éditable.
+ * Les points GPS deviennent des points de segment "trail-ok"
+ * dans le sentier actif ou un nouveau sentier.
+ */
+function convertLiveToTrail() {
+  var pts = liveTracking.points;
+  if (pts.length < 2) { showToast('Pas assez de points'); return; }
+
+  // Créer un nouveau sentier
+  var name = 'GPS Live — ' + new Date().toLocaleDateString('fr-FR');
+  var trailIdx = trails.length;
+  createNewTrailData(name);
+
+  // Les points bruts du GPS → segment trail-ok
+  var segPts = pts.map(function(p) { return [p.lat, p.lon]; });
+  trails[trailIdx].segments.push({ points: segPts, type: 'trail-ok' });
+
+  // Redessiner
+  redrawPolylines(trailIdx);
+  var ld = leafletData[trailIdx];
+  var color = TYPES['trail-ok'].color;
+  segPts.forEach(function(p) {
+    var m = L.circleMarker(p, {
+      radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2
+    }).addTo(map);
+    (function(tidx, marker) {
+      marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
+    })(trailIdx, m);
+    ld.markers.push(m);
+  });
+
+  activeTrailIdx = trailIdx;
+  refreshTrailSelect();
+  updateStats();
+  closeLiveExportModal();
+  showToast('Parcours converti en sentier "' + name + '" ✓');
+}
+
+/* ==================================================================
+   COORDONNÉES GPS — Densification du tracé
+   ==================================================================
+   On ne retourne pas juste les N points cliqués par l'utilisateur,
+   mais une ligne brisée densifiée : entre chaque paire de points
+   consécutifs, on interpole des points intermédiaires à intervalle
+   régulier (ex: tous les 5 mètres).
+
+   Résultat : un ensemble fini de coordonnées GPS très rapprochées
+   qui représente fidèlement le sentier sur le terrain.
+   ================================================================== */
+
+function openGPSModal() {
+  var trail = trails[activeTrailIdx];
+  var hasPoints = trail.segments.some(function(s) { return s.points.length >= 2; });
+  if (!hasPoints) { showToast('Tracez au moins 2 points d\'abord'); return; }
+  document.getElementById('gps-modal').classList.add('visible');
+  refreshGPSCoords();
+}
+
+function closeGPSModal() {
+  document.getElementById('gps-modal').classList.remove('visible');
+}
+
+/**
+ * densifyTrail(trail, stepMeters)
+ * 
+ * Pour chaque segment du sentier, on parcourt les points deux à deux.
+ * Entre chaque paire (A, B), on calcule la distance réelle en mètres.
+ * Puis on insère des points intermédiaires espacés de `stepMeters` mètres
+ * par interpolation linéaire sur la latitude et la longitude.
+ * 
+ * Retourne un tableau de { lat, lon, type, dist } où dist est la
+ * distance cumulée depuis le début du segment.
+ */
+function densifyTrail(trail, stepMeters) {
+  var result = [];
+  
+  trail.segments.forEach(function(seg) {
+    if (seg.points.length < 2) return;
+    var cumulDist = 0;
+    
+    for (var i = 0; i < seg.points.length; i++) {
+      var pA = seg.points[i];
+      
+      if (i === 0) {
+        // Premier point du segment
+        result.push({ lat: pA[0], lon: pA[1], type: seg.type, dist: 0 });
+        continue;
+      }
+      
+      var pPrev = seg.points[i - 1];
+      var dAB = L.latLng(pPrev).distanceTo(L.latLng(pA)); // distance en mètres
+      
+      // Combien de pas intermédiaires ?
+      var nbSteps = Math.floor(dAB / stepMeters);
+      
+      for (var s = 1; s <= nbSteps; s++) {
+        var ratio = s / Math.ceil(dAB / stepMeters);
+        if (ratio >= 1) break; // on garde le point final pour après
+        var lat = pPrev[0] + (pA[0] - pPrev[0]) * ratio;
+        var lon = pPrev[1] + (pA[1] - pPrev[1]) * ratio;
+        cumulDist += stepMeters;
+        result.push({ lat: lat, lon: lon, type: seg.type, dist: cumulDist });
+      }
+      
+      // Ajouter le point B lui-même
+      cumulDist += dAB - (nbSteps * stepMeters);
+      result.push({ lat: pA[0], lon: pA[1], type: seg.type, dist: cumulDist });
+    }
+  });
+  
+  return result;
+}
+
+/**
+ * Conversion décimal → degrés minutes secondes
+ */
+function toDMS(decimal, isLat) {
+  var dir = isLat ? (decimal >= 0 ? 'N' : 'S') : (decimal >= 0 ? 'E' : 'W');
+  var abs = Math.abs(decimal);
+  var deg = Math.floor(abs);
+  var minFloat = (abs - deg) * 60;
+  var min = Math.floor(minFloat);
+  var sec = ((minFloat - min) * 60).toFixed(2);
+  return deg + '°' + (min < 10 ? '0' : '') + min + "'" + (sec < 10 ? '0' : '') + sec + '"' + dir;
+}
+
+function refreshGPSCoords() {
+  var trail = trails[activeTrailIdx];
+  var step = parseInt(document.getElementById('gps-step').value);
+  var format = document.getElementById('gps-format').value;
+  
+  var points = densifyTrail(trail, step);
+  
+  // Info : nombre de points et distance totale
+  var totalDist = points.length > 0 ? points[points.length - 1].dist : 0;
+  document.getElementById('gps-info').textContent = 
+    points.length + ' points — ' + formatDistance(totalDist);
+  
+  // Formater selon le choix
+  var text = '';
+  var typeLabels = { 'trail-ok': 'praticable', 'trail-bad': 'impraticable', 'river': 'riviere' };
+  
+  switch (format) {
+    case 'csv':
+      text = 'lat;lon\n';
+      points.forEach(function(p) {
+        text += p.lat.toFixed(7) + ';' + p.lon.toFixed(7) + '\n';
+      });
+      break;
+      
+    case 'csv-full':
+      text = 'n;lat;lon;type;dist_m\n';
+      points.forEach(function(p, i) {
+        text += (i + 1) + ';' + p.lat.toFixed(7) + ';' + p.lon.toFixed(7) + ';' +
+          (typeLabels[p.type] || p.type) + ';' + p.dist.toFixed(1) + '\n';
+      });
+      break;
+      
+    case 'decimal':
+      points.forEach(function(p) {
+        text += p.lat.toFixed(7) + ', ' + p.lon.toFixed(7) + '\n';
+      });
+      break;
+      
+    case 'dms':
+      points.forEach(function(p) {
+        text += toDMS(p.lat, true) + '  ' + toDMS(p.lon, false) + '\n';
+      });
+      break;
+  }
+  
+  document.getElementById('gps-coords').value = text;
+}
+
+function copyGPSCoords() {
+  var textarea = document.getElementById('gps-coords');
+  textarea.select();
+  document.execCommand('copy');
+  showToast('Coordonnées copiées ✓');
+}
+
+function downloadGPSCoords() {
+  var text = document.getElementById('gps-coords').value;
+  var format = document.getElementById('gps-format').value;
+  var ext = (format === 'dms' || format === 'decimal') ? 'txt' : 'csv';
+  var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'trailforge_coords_' + trails[activeTrailIdx].name.replace(/\s+/g, '_') + '.' + ext;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Fichier téléchargé ✓');
+}
+
+/* ==================================================================
+   UTILS
+   ================================================================== */
+function showToast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('visible');
+  setTimeout(function() { el.classList.remove('visible'); }, 2500);
+}
+function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escapeXml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;'); }
+
+refreshPanel();
+updateStats();
+
+// Migration : nettoyer les anciennes sauvegardes qui pourraient
+// ne pas avoir de champ 'type' sur les segments (versions antérieures)
+(function migrateOldSaves() {
+  var changed = false;
+  savedProjects.forEach(function(proj) {
+    (proj.trails || []).forEach(function(t) {
+      (t.segments || []).forEach(function(seg) {
+        if (!seg.type || !TYPES[seg.type]) {
+          seg.type = 'trail-ok';
+          changed = true;
+        }
+      });
+    });
+  });
+  if (changed) {
+    localStorage.setItem('trailforge_projects', JSON.stringify(savedProjects));
+    console.log('[TrailForge] Migration : types de segments corrigés dans les anciennes sauvegardes');
+  }
+})();
+</script>
+</body>
+</html>
