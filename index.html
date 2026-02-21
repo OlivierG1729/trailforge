@@ -113,6 +113,41 @@
   }
   .type-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
   .type-btn.active { border-color: var(--active-color); color: var(--text-primary); background: var(--bg-hover); }
+
+  /* Opacity slider — intégré dans le sélecteur de type */
+  .opacity-control {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 8px; margin-top: 2px;
+    border-top: 1px solid var(--border);
+  }
+  .opacity-control label {
+    color: var(--text-muted); font-size: 0.7rem; white-space: nowrap;
+  }
+  .opacity-control input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 80px; height: 6px; border-radius: 3px;
+    background: linear-gradient(to right, var(--border), var(--accent));
+    outline: none; cursor: pointer;
+  }
+  .opacity-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--text-primary); border: 2px solid var(--accent);
+    cursor: pointer; box-shadow: 0 0 4px rgba(0,0,0,0.4);
+  }
+  .opacity-control input[type="range"]::-moz-range-track {
+    width: 80px; height: 6px; border-radius: 3px;
+    background: linear-gradient(to right, var(--border), var(--accent));
+  }
+  .opacity-control input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--text-primary); border: 2px solid var(--accent);
+    cursor: pointer; box-shadow: 0 0 4px rgba(0,0,0,0.4);
+  }
+  .opacity-control #opacity-value {
+    color: var(--text-secondary); font-size: 0.7rem;
+    font-family: var(--font-mono); min-width: 28px;
+  }
   .type-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
 
   .trail-selector {
@@ -405,6 +440,8 @@
       transform: none; flex-direction: row;
     }
     .type-btn { padding: 5px 8px; font-size: 0.7rem; }
+    .opacity-control { padding: 2px 6px; }
+    .opacity-control input[type="range"] { width: 60px; }
 
     /* Trail selector → en haut à gauche, sous le header */
     .trail-selector {
@@ -506,6 +543,11 @@
   <button class="type-btn" style="--active-color: var(--color-river)" data-type="river" onclick="setDrawType('river')">
     <span class="type-dot" style="background: var(--color-river)"></span>Rivière
   </button>
+  <div class="opacity-control">
+    <label for="opacity-slider">Opacité</label>
+    <input type="range" id="opacity-slider" min="5" max="100" value="90" oninput="setTrailOpacity(this.value)">
+    <span id="opacity-value">90%</span>
+  </div>
 </div>
 
 <input type="file" id="file-input" accept=".gpx,.geojson,.json,.csv" onchange="importFile(event)">
@@ -723,6 +765,7 @@ let currentType = 'trail-ok';
 let leafletData = [];
 let pendingAnnotationLatLng = null;
 let branchStarted = false;    // en mode branch, le 1er clic est posé ?
+let trailOpacity = 0.9;      // opacité des sentiers et nœuds (0.05 à 1.0)
 let savedProjects = JSON.parse(localStorage.getItem('trailforge_projects') || '[]');
 
 /* ==================================================================
@@ -922,7 +965,7 @@ function addMarkerForPoint(trailIdx, pt, type) {
   var ld = leafletData[trailIdx];
   var color = TYPES[type].color;
   var marker = L.circleMarker(pt, {
-    radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2
+    radius: 5, color: color, fillColor: color, fillOpacity: trailOpacity, opacity: trailOpacity, weight: 2
   }).addTo(map);
   marker.on('click', function(e) {
     L.DomEvent.stopPropagation(e);
@@ -982,10 +1025,29 @@ function redrawPolylines(trailIdx) {
   trail.segments.forEach(function(seg) {
     if (seg.points.length < 2) return;
     var t = TYPES[seg.type] || TYPES['trail-ok'];
-    var opts = { color: t.color, weight: 4, opacity: 0.9, lineJoin: 'round', lineCap: 'round' };
+    var opts = { color: t.color, weight: 4, opacity: trailOpacity, lineJoin: 'round', lineCap: 'round' };
     if (t.dash) opts.dashArray = t.dash;
     var line = L.polyline(seg.points, opts).addTo(map);
     ld.polylines.push(line);
+  });
+}
+
+/**
+ * Met à jour l'opacité de tous les sentiers et nœuds sur la carte.
+ * Appelé par le curseur d'opacité (input range, valeur 5-100).
+ */
+function setTrailOpacity(val) {
+  trailOpacity = parseInt(val) / 100;
+  document.getElementById('opacity-value').textContent = val + '%';
+
+  // Mettre à jour toutes les polylines et tous les markers existants
+  leafletData.forEach(function(ld) {
+    ld.polylines.forEach(function(p) {
+      p.setStyle({ opacity: trailOpacity });
+    });
+    ld.markers.forEach(function(m) {
+      m.setStyle({ opacity: trailOpacity, fillOpacity: trailOpacity });
+    });
   });
 }
 
@@ -1221,7 +1283,7 @@ function loadProject(id) {
       var typeInfo = TYPES[seg.type] || TYPES['trail-ok'];
       seg.points.forEach(function(p) {
         var m = L.circleMarker(p, {
-          radius: 5, color: typeInfo.color, fillColor: typeInfo.color, fillOpacity: 0.9, weight: 2
+          radius: 5, color: typeInfo.color, fillColor: typeInfo.color, fillOpacity: trailOpacity, opacity: trailOpacity, weight: 2
         }).addTo(map);
         (function(tidx, marker) {
           marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
@@ -1424,7 +1486,7 @@ function importGPX(xmlText) {
     trails[trailIdx].segments.forEach(function(seg) {
       var color = (TYPES[seg.type] || TYPES['trail-ok']).color;
       seg.points.forEach(function(p) {
-        var m = L.circleMarker(p, { radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2 }).addTo(map);
+        var m = L.circleMarker(p, { radius: 5, color: color, fillColor: color, fillOpacity: trailOpacity, opacity: trailOpacity, weight: 2 }).addTo(map);
         (function(tidx, marker) {
           marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
         })(trailIdx, m);
@@ -1479,7 +1541,7 @@ function importGeoJSON(jsonText) {
   var ld = leafletData[trailIdx];
   var color = TYPES['trail-ok'].color;
   pts.forEach(function(p) {
-    var m = L.circleMarker(p, { radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2 }).addTo(map);
+    var m = L.circleMarker(p, { radius: 5, color: color, fillColor: color, fillOpacity: trailOpacity, opacity: trailOpacity, weight: 2 }).addTo(map);
     (function(tidx, marker) {
       marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
     })(trailIdx, m);
@@ -1608,7 +1670,7 @@ function importCSV(csvText) {
     trails[trailIdx].segments.forEach(function(seg) {
       var color = (TYPES[seg.type] || TYPES['trail-ok']).color;
       seg.points.forEach(function(p) {
-        var m = L.circleMarker(p, { radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2 }).addTo(map);
+        var m = L.circleMarker(p, { radius: 5, color: color, fillColor: color, fillOpacity: trailOpacity, opacity: trailOpacity, weight: 2 }).addTo(map);
         (function(tidx, marker) {
           marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
         })(trailIdx, m);
@@ -2374,7 +2436,7 @@ function convertLiveToTrail() {
   var color = TYPES['trail-ok'].color;
   segPts.forEach(function(p) {
     var m = L.circleMarker(p, {
-      radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2
+      radius: 5, color: color, fillColor: color, fillOpacity: trailOpacity, opacity: trailOpacity, weight: 2
     }).addTo(map);
     (function(tidx, marker) {
       marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
