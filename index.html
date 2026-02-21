@@ -437,11 +437,15 @@
     /* Type selector → au-dessus de la toolbar */
     .type-selector {
       top: auto; bottom: 100px; left: 10px; right: auto;
-      transform: none; flex-direction: row;
+      transform: none; flex-direction: row; flex-wrap: wrap;
+      max-width: 230px;
     }
     .type-btn { padding: 5px 8px; font-size: 0.7rem; }
-    .opacity-control { padding: 2px 6px; }
-    .opacity-control input[type="range"] { width: 60px; }
+    .opacity-control {
+      width: 100%; padding: 4px 6px;
+      border-top: 1px solid var(--border);
+    }
+    .opacity-control input[type="range"] { flex: 1; min-width: 0; }
 
     /* Trail selector → en haut à gauche, sous le header */
     .trail-selector {
