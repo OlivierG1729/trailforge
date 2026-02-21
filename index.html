@@ -478,7 +478,7 @@
   <button data-tooltip="Exporter GPX" onclick="exportAllGPX()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
   </button>
-  <button data-tooltip="Importer GPX/GeoJSON" onclick="document.getElementById('file-input').click()">
+  <button data-tooltip="Importer GPX/GeoJSON/CSV" onclick="document.getElementById('file-input').click()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
   </button>
   <button data-tooltip="Coordonnées GPS du sentier" onclick="openGPSModal()">
@@ -508,7 +508,7 @@
   </button>
 </div>
 
-<input type="file" id="file-input" accept=".gpx,.geojson,.json" onchange="importFile(event)">
+<input type="file" id="file-input" accept=".gpx,.geojson,.json,.csv" onchange="importFile(event)">
 
 <div class="help-bar" id="help-bar">
   <span><kbd>Clic</kbd> Poser un point</span>
@@ -1352,6 +1352,7 @@ function importFile(event) {
     try {
       if (file.name.endsWith('.gpx')) importGPX(e.target.result);
       else if (file.name.endsWith('.geojson') || file.name.endsWith('.json')) importGeoJSON(e.target.result);
+      else if (file.name.endsWith('.csv')) importCSV(e.target.result);
       else showToast('Format non supporté');
     } catch (err) { showToast('Erreur de lecture'); console.error(err); }
   };
@@ -1488,6 +1489,138 @@ function importGeoJSON(jsonText) {
   branchStarted = false;
   refreshTrailSelect(); updateStats(); fitMapToAll();
   showToast('GeoJSON importé ✓');
+}
+
+/* ==================================================================
+   IMPORT CSV — Format attendu :
+   n;latitude;longitude;type;sentier
+   
+   Colonnes :
+   - n           : numéro du nœud (ignoré, seul l'ordre compte)
+   - latitude    : décimal (ex: 43.7228)
+   - longitude   : décimal (ex: 7.0991)
+   - type        : "praticable", "impraticable", "riviere" (ou "rivière")
+   - sentier     : nom du sentier (ex: "Sentier 1", "Sentier 2")
+   
+   Le séparateur détecté automatiquement : point-virgule (;) ou virgule (,)
+   La première ligne est traitée comme en-tête si elle contient "lat".
+   
+   L'algo regroupe les lignes par sentier, puis par segments consécutifs
+   de même type. Un changement de type crée un nouveau segment.
+   ================================================================== */
+function importCSV(csvText) {
+  removeEmptyTrails();
+
+  var lines = csvText.trim().split('\n');
+  if (lines.length < 2) { showToast('CSV vide ou trop court'); return; }
+
+  // Détecter le séparateur : on regarde la première ligne
+  var sep = lines[0].indexOf(';') >= 0 ? ';' : ',';
+
+  // Parser l'en-tête pour trouver les indices de colonnes
+  var header = lines[0].toLowerCase().split(sep).map(function(s) { return s.trim(); });
+  
+  // Chercher les colonnes par nom (flexible sur les noms)
+  var iLat = -1, iLon = -1, iType = -1, iTrail = -1;
+  header.forEach(function(col, i) {
+    if (col === 'latitude' || col === 'lat') iLat = i;
+    else if (col === 'longitude' || col === 'lon' || col === 'lng') iLon = i;
+    else if (col === 'type') iType = i;
+    else if (col === 'sentier' || col === 'trail' || col === 'name') iTrail = i;
+  });
+
+  // Vérifier que les colonnes essentielles sont trouvées
+  if (iLat < 0 || iLon < 0) {
+    showToast('Colonnes "latitude" et "longitude" introuvables dans le CSV');
+    return;
+  }
+
+  // Mapper les noms de type du CSV → clés internes
+  var typeMap = {
+    'praticable': 'trail-ok',
+    'impraticable': 'trail-bad',
+    'riviere': 'river',
+    'rivière': 'river',
+    'river': 'river',
+    'trail-ok': 'trail-ok',
+    'trail-bad': 'trail-bad',
+  };
+
+  // Parser les lignes de données (en sautant l'en-tête)
+  // On regroupe par nom de sentier
+  var trailMap = {}; // nom → [{ lat, lon, type }]
+  var trailOrder = []; // pour garder l'ordre d'apparition
+
+  for (var i = 1; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+
+    var cols = line.split(sep);
+    var lat = parseFloat(cols[iLat]);
+    var lon = parseFloat(cols[iLon]);
+    if (isNaN(lat) || isNaN(lon)) continue;
+
+    var rawType = iType >= 0 && cols[iType] ? cols[iType].trim().toLowerCase() : 'praticable';
+    var type = typeMap[rawType] || 'trail-ok';
+
+    var trailName = iTrail >= 0 && cols[iTrail] ? cols[iTrail].trim() : 'Import CSV';
+
+    if (!trailMap[trailName]) {
+      trailMap[trailName] = [];
+      trailOrder.push(trailName);
+    }
+    trailMap[trailName].push({ lat: lat, lon: lon, type: type });
+  }
+
+  if (trailOrder.length === 0) { showToast('Aucun point valide dans le CSV'); return; }
+
+  // Créer les sentiers et segments
+  trailOrder.forEach(function(trailName) {
+    var points = trailMap[trailName];
+    var trailIdx = trails.length;
+    createNewTrailData(trailName);
+
+    // Découper en segments consécutifs de même type.
+    // Quand le type change, on crée un nouveau segment.
+    var currentSeg = { points: [], type: points[0].type };
+
+    points.forEach(function(p, i) {
+      if (i > 0 && p.type !== currentSeg.type) {
+        // Le type a changé → sauvegarder le segment en cours
+        if (currentSeg.points.length > 0) {
+          trails[trailIdx].segments.push(currentSeg);
+        }
+        // Nouveau segment, en reprenant le dernier point pour la continuité
+        var lastPt = currentSeg.points[currentSeg.points.length - 1];
+        currentSeg = { points: [lastPt], type: p.type };
+      }
+      currentSeg.points.push([p.lat, p.lon]);
+    });
+
+    // Sauvegarder le dernier segment
+    if (currentSeg.points.length > 0) {
+      trails[trailIdx].segments.push(currentSeg);
+    }
+
+    // Dessiner sur la carte
+    redrawPolylines(trailIdx);
+    var ld = leafletData[trailIdx];
+    trails[trailIdx].segments.forEach(function(seg) {
+      var color = (TYPES[seg.type] || TYPES['trail-ok']).color;
+      seg.points.forEach(function(p) {
+        var m = L.circleMarker(p, { radius: 5, color: color, fillColor: color, fillOpacity: 0.9, weight: 2 }).addTo(map);
+        (function(tidx, marker) {
+          marker.on('click', function(e) { L.DomEvent.stopPropagation(e); removePointFromTrail(tidx, marker); });
+        })(trailIdx, m);
+        ld.markers.push(m);
+      });
+    });
+  });
+
+  activeTrailIdx = trails.length - 1;
+  branchStarted = false;
+  refreshTrailSelect(); updateStats(); fitMapToAll();
+  showToast('CSV importé ✓ (' + trailOrder.length + ' sentier' + (trailOrder.length > 1 ? 's' : '') + ')');
 }
 
 /* ==================================================================
