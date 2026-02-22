@@ -418,15 +418,19 @@
   .drawing-mode .leaflet-interactive { cursor: crosshair !important; }
 
   @media (max-width: 640px) {
-    /* Header → plus compact, aligné à gauche pour libérer la droite (couches carte) */
+    /* Header → compact, en haut à gauche */
     .header {
       top: 8px; left: 10px; right: auto; transform: none;
       padding: 5px 12px; gap: 8px; flex-wrap: nowrap;
-      max-width: calc(100vw - 80px);
+      max-width: calc(100vw - 20px);
     }
     .header .logo { font-size: 0.82rem; }
     .header .stats { font-size: 0.68rem; gap: 6px; }
     .header .stats .distance-display { font-size: 0.82rem; padding: 1px 6px; }
+
+    /* Pousser le sélecteur de couches Leaflet sous le trail-selector */
+    .leaflet-top.leaflet-right { top: 100px !important; }
+    .leaflet-control-layers { font-size: 0.75rem !important; padding: 6px 10px !important; }
 
     /* Toolbar → grille en bas de l'écran, 2 rangées auto-wrap */
     .toolbar {
@@ -441,7 +445,7 @@
 
     /* Type selector → au-dessus de la toolbar */
     .type-selector {
-      top: auto; bottom: 100px; left: 10px; right: auto;
+      top: auto; bottom: 110px; left: 10px; right: auto;
       transform: none; flex-direction: row; flex-wrap: wrap;
       max-width: 230px;
     }
@@ -452,9 +456,9 @@
     }
     .opacity-control input[type="range"] { flex: 1; min-width: 0; }
 
-    /* Trail selector → sous le header, compacté */
+    /* Trail selector → sous le header, compact */
     .trail-selector {
-      top: 52px; bottom: auto; left: 10px;
+      top: 48px; bottom: auto; left: 10px;
       flex-wrap: wrap; max-width: 260px;
       padding: 4px 8px; font-size: 0.72rem; gap: 4px;
     }
@@ -469,7 +473,7 @@
 
     /* Live HUD → au-dessus de la toolbar */
     .live-hud {
-      bottom: 110px; padding: 8px 14px; gap: 10px;
+      bottom: 120px; padding: 8px 14px; gap: 10px;
       font-size: 0.78rem; flex-wrap: wrap; justify-content: center;
     }
     .live-hud .live-stats { gap: 10px; font-size: 0.78rem; }
@@ -479,48 +483,54 @@
   @media (max-height: 500px) {
     /* Header → compact, en haut à gauche */
     .header {
-      top: 6px; left: 10px; right: auto; transform: none;
-      padding: 4px 10px; gap: 8px;
+      top: 4px; left: 10px; right: auto; transform: none;
+      padding: 3px 10px; gap: 6px;
       max-width: calc(100vw - 180px);
     }
-    .header .logo { font-size: 0.82rem; }
-    .header .stats { font-size: 0.68rem; gap: 6px; }
-    .header .stats .distance-display { font-size: 0.82rem; padding: 1px 6px; }
+    .header .logo { font-size: 0.78rem; }
+    .header .stats { font-size: 0.65rem; gap: 6px; }
+    .header .stats .distance-display { font-size: 0.78rem; padding: 1px 6px; }
+
+    /* Couches Leaflet → sous le header en haut à droite */
+    .leaflet-top.leaflet-right { top: 4px !important; }
+    .leaflet-control-layers { font-size: 0.72rem !important; padding: 4px 8px !important; }
 
     /* Toolbar → barre horizontale en bas, compacte */
     .toolbar {
-      top: auto; bottom: 6px; left: 50%; right: auto;
+      top: auto; bottom: 4px; left: 50%; right: auto;
       transform: translateX(-50%); flex-direction: row; flex-wrap: wrap;
       justify-content: center; gap: 2px;
-      padding: 4px 6px; border-radius: 12px;
+      padding: 3px 6px; border-radius: 12px;
     }
-    .toolbar button { width: 32px; height: 32px; }
+    .toolbar button { width: 30px; height: 30px; }
+    .toolbar button svg { width: 16px; height: 16px; }
     .toolbar button::after { display: none; }
     .toolbar .separator { display: none; }
 
     /* Trail selector → sous le header */
     .trail-selector {
-      top: 42px; left: 10px; bottom: auto;
-      padding: 3px 8px; font-size: 0.7rem; gap: 4px;
+      top: 34px; left: 10px; bottom: auto;
+      padding: 2px 6px; font-size: 0.68rem; gap: 3px;
     }
     .trail-selector label { display: none; }
-    .trail-selector select { max-width: 100px; font-size: 0.7rem; }
-    .trail-selector button { padding: 2px 6px; font-size: 0.65rem; }
+    .trail-selector select { max-width: 90px; font-size: 0.68rem; }
+    .trail-selector button { padding: 2px 5px; font-size: 0.62rem; }
 
-    /* Type selector → au-dessus de la toolbar */
+    /* Type selector → au-dessus de la toolbar, avec marge suffisante
+       La toolbar fait ~2 rangées de 30px + padding = ~72px */
     .type-selector {
-      top: auto; bottom: 56px; left: 10px; right: auto;
+      top: auto; bottom: 80px; left: 10px; right: auto;
       transform: none; flex-direction: row; flex-wrap: wrap;
-      max-width: 230px;
+      max-width: 220px;
     }
-    .type-btn { padding: 4px 6px; font-size: 0.65rem; }
+    .type-btn { padding: 3px 6px; font-size: 0.62rem; }
     .opacity-control {
       width: 100%; padding: 2px 6px;
       border-top: 1px solid var(--border);
     }
-    .opacity-control label { font-size: 0.6rem; }
-    .opacity-control input[type="range"] { flex: 1; min-width: 0; }
-    .opacity-control #opacity-value { font-size: 0.6rem; }
+    .opacity-control label { font-size: 0.58rem; }
+    .opacity-control input[type="range"] { flex: 1; min-width: 0; height: 4px; }
+    .opacity-control #opacity-value { font-size: 0.58rem; }
 
     .help-bar { display: none; }
   }
