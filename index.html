@@ -283,6 +283,40 @@
   .icon-option:hover { background: var(--bg-hover); border-color: var(--border-light); }
   .icon-option.selected { border-color: var(--accent-green); background: rgba(61,214,140,0.15); }
 
+  /* Photo upload zone dans le modal d'annotation */
+  .photo-upload-zone {
+    display: flex; align-items: center; gap: 10px;
+    margin: 8px 0; padding: 10px;
+    border: 2px dashed var(--border); border-radius: var(--radius-sm);
+    cursor: pointer; transition: all var(--transition);
+  }
+  .photo-upload-zone:hover { border-color: var(--accent); background: rgba(255,255,255,0.03); }
+  .photo-upload-zone .photo-upload-label {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--text-secondary); font-size: 0.8rem;
+  }
+  .photo-upload-zone .photo-upload-label svg { width: 20px; height: 20px; opacity: 0.7; }
+  .photo-upload-zone .photo-preview {
+    width: 60px; height: 60px; object-fit: cover; border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  .photo-upload-zone .photo-remove {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 50%; width: 22px; height: 22px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 0.7rem; margin-left: auto;
+  }
+  .photo-upload-zone .photo-remove:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Lightbox photo plein écran */
+  .photo-lightbox {
+    position: fixed; inset: 0; z-index: 3000;
+    background: rgba(0,0,0,0.9); display: flex;
+    align-items: center; justify-content: center;
+    cursor: zoom-out;
+  }
+  .photo-lightbox img { max-width: 95vw; max-height: 95vh; border-radius: 8px; }
+
   /* GPS Live Tracking HUD */
   .live-hud {
     position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
@@ -407,6 +441,10 @@
   .leaflet-popup-content .popup-annotation .popup-icon { font-size: 1.6rem; margin-bottom: 4px; }
   .leaflet-popup-content .popup-annotation h4 { font-size: 0.9rem; margin-bottom: 4px; color: var(--accent-green); }
   .leaflet-popup-content .popup-annotation p { font-size: 0.8rem; color: var(--text-secondary); margin: 0; line-height: 1.4; }
+  .leaflet-popup-content .popup-annotation .popup-photo {
+    width: 100%; max-height: 180px; object-fit: cover; border-radius: 6px;
+    margin: 6px 0; cursor: pointer; border: 1px solid var(--border);
+  }
   .leaflet-popup-content .popup-actions { display: flex; gap: 6px; margin-top: 8px; }
   .leaflet-popup-content .popup-actions button {
     font-size: 0.72rem; padding: 3px 8px; border: 1px solid var(--border);
@@ -578,6 +616,9 @@
   <button id="btn-annotate" data-tooltip="Annotation 📍" onclick="setMode('annotate')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
   </button>
+  <button data-tooltip="📷 Photo géolocalisée" onclick="document.getElementById('geoPhoto-input').click()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+  </button>
   <button data-tooltip="Annuler (Ctrl+Z)" onclick="undoLastPoint()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
   </button>
@@ -667,6 +708,14 @@
     <h3>📍 Ajouter une annotation</h3>
     <label>Icône</label>
     <div class="icon-grid" id="icon-grid"></div>
+    <label>Photo (optionnel)</label>
+    <div class="photo-upload-zone" id="photo-upload-zone" onclick="document.getElementById('anno-photo-input').click()">
+      <span class="photo-upload-label" id="photo-upload-label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        📷 Ajouter une photo
+      </span>
+    </div>
+    <input type="file" id="anno-photo-input" accept="image/*" style="display:none" onchange="onAnnotationPhotoSelected(event)">
     <label for="anno-title">Titre</label>
     <input type="text" id="anno-title" placeholder="Ex : Table de pique-nique, Moulin...">
     <label for="anno-text">Description (optionnel)</label>
@@ -677,6 +726,9 @@
     </div>
   </div>
 </div>
+
+<!-- Input fichier pour photo géolocalisée (toolbar) -->
+<input type="file" id="geoPhoto-input" accept="image/*" style="display:none" onchange="onGeoPhotoSelected(event)">
 
 <!-- GPS COORDINATES MODAL -->
 <div class="modal-overlay" id="gps-modal">
@@ -825,7 +877,7 @@ let selectedAnnoIcon = 0; // index dans ANNO_ICONS
    - trails[] : sentiers de la carte courante
    - Chaque sentier = { id, name, segments[], annotations[] }
    - Un segment = { points: [[lat,lng],...], type: string }
-   - Une annotation = { latlng, title, text, icon: index }
+   - Une annotation = { latlng, title, text, icon: index, photo: base64|null }
    - leafletData[] : éléments Leaflet (markers, polylines, annoMarkers)
    
    MODE :
@@ -894,8 +946,11 @@ map.on('click', function(e) {
   if (mode === 'annotate') {
     pendingAnnotationLatLng = e.latlng;
     selectedAnnoIcon = 0;
+    pendingAnnotationPhoto = null;
     buildIconGrid();
+    updatePhotoPreview();
     document.getElementById('anno-title').value = ANNO_ICONS[0].label;
+    document.getElementById('anno-text').value = '';
     document.getElementById('annotation-modal').classList.add('visible');
     document.getElementById('anno-title').focus();
     return;
@@ -1130,9 +1185,241 @@ function setTrailOpacity(val) {
 /* ==================================================================
    ANNOTATIONS avec icônes
    ================================================================== */
+/* ==================================================================
+   ANNOTATIONS avec icônes
+   ================================================================== */
+/* ---------- Variable pour stocker la photo en cours d'ajout -------- */
+let pendingAnnotationPhoto = null; // base64 data URL ou null
+
+/* ---------- EXIF GPS Parser (JPEG uniquement, sans librairie) ------ */
+/**
+ * Lit les métadonnées EXIF d'un fichier JPEG et extrait les coordonnées GPS.
+ * Retourne une Promise qui résout vers { lat, lon } ou null si pas de GPS.
+ *
+ * Fonctionnement :
+ * 1. On cherche le marqueur EXIF APP1 (0xFFE1) dans l'en-tête JPEG
+ * 2. On parse le TIFF header pour trouver le IFD0
+ * 3. On cherche le tag GPSInfo (0x8825) qui pointe vers le sous-IFD GPS
+ * 4. Dans le sous-IFD GPS, on lit les tags :
+ *    - 0x0001 GPSLatitudeRef (N/S)
+ *    - 0x0002 GPSLatitude (3 rationnels : degrés, minutes, secondes)
+ *    - 0x0003 GPSLongitudeRef (E/W)
+ *    - 0x0004 GPSLongitude (3 rationnels)
+ */
+function extractGPSFromExif(file) {
+  return new Promise(function(resolve) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var buf = new DataView(e.target.result);
+        // Vérifier signature JPEG (0xFFD8)
+        if (buf.getUint16(0) !== 0xFFD8) { resolve(null); return; }
+
+        var offset = 2;
+        var len = buf.byteLength;
+        while (offset < len - 4) {
+          var marker = buf.getUint16(offset);
+          if (marker === 0xFFE1) { // APP1 = EXIF
+            var exifLen = buf.getUint16(offset + 2);
+            // Vérifier "Exif\0\0" (6 octets)
+            var exifStr = String.fromCharCode(buf.getUint8(offset+4), buf.getUint8(offset+5),
+              buf.getUint8(offset+6), buf.getUint8(offset+7));
+            if (exifStr !== 'Exif') { resolve(null); return; }
+
+            var tiffStart = offset + 10; // après marker(2) + len(2) + "Exif\0\0"(6)
+            var bo = buf.getUint16(tiffStart) === 0x4949; // little-endian?
+
+            function getU16(o) { return buf.getUint16(tiffStart + o, bo); }
+            function getU32(o) { return buf.getUint32(tiffStart + o, bo); }
+
+            // Lire un rationnel EXIF (2 uint32 : numérateur / dénominateur)
+            function getRational(o) {
+              var num = getU32(o);
+              var den = getU32(o + 4);
+              return den ? num / den : 0;
+            }
+
+            // Lire les entrées d'un IFD et retourner un objet { tag → {type, count, valueOffset} }
+            function readIFD(ifdOffset) {
+              var entries = {};
+              var count = getU16(ifdOffset);
+              for (var i = 0; i < count; i++) {
+                var eo = ifdOffset + 2 + i * 12;
+                var tag = getU16(eo);
+                var type = getU16(eo + 2);
+                var cnt = getU32(eo + 4);
+                var valOff = getU32(eo + 8);
+                entries[tag] = { type: type, count: cnt, valOff: valOff, entryOff: eo + 8 };
+              }
+              return entries;
+            }
+
+            // Lire IFD0
+            var ifd0Offset = getU32(4);
+            var ifd0 = readIFD(ifd0Offset);
+
+            // Chercher le tag GPSInfo (0x8825)
+            if (!ifd0[0x8825]) { resolve(null); return; }
+            var gpsIfdOffset = ifd0[0x8825].valOff;
+            var gpsIfd = readIFD(gpsIfdOffset);
+
+            // Lire un caractère ASCII depuis un tag
+            function getAscii(entry) {
+              if (!entry) return '';
+              return String.fromCharCode(buf.getUint8(tiffStart + entry.entryOff));
+            }
+
+            // Convertir DMS (3 rationnels) en décimal
+            function dmsToDecimal(entry) {
+              if (!entry) return 0;
+              var off = entry.valOff;
+              var deg = getRational(off);
+              var min = getRational(off + 8);
+              var sec = getRational(off + 16);
+              return deg + min / 60 + sec / 3600;
+            }
+
+            var latRef = getAscii(gpsIfd[0x0001]); // N ou S
+            var lat = dmsToDecimal(gpsIfd[0x0002]);
+            var lonRef = getAscii(gpsIfd[0x0003]); // E ou W
+            var lon = dmsToDecimal(gpsIfd[0x0004]);
+
+            if (lat === 0 && lon === 0) { resolve(null); return; }
+            if (latRef === 'S') lat = -lat;
+            if (lonRef === 'W') lon = -lon;
+
+            resolve({ lat: lat, lon: lon });
+            return;
+          }
+          // Passer au marqueur suivant
+          var segLen = buf.getUint16(offset + 2);
+          offset += 2 + segLen;
+        }
+        resolve(null); // Pas trouvé de segment EXIF
+      } catch (err) {
+        console.error('[EXIF]', err);
+        resolve(null);
+      }
+    };
+    // On lit seulement les premiers 128 Ko (l'EXIF est toujours au début)
+    reader.readAsArrayBuffer(file.slice(0, 131072));
+  });
+}
+
+/* ---------- Redimensionner une photo en base64 -------------------- */
+/**
+ * Prend un fichier image et retourne une Promise vers un data URL
+ * JPEG redimensionné (max 600px de large, qualité 0.75).
+ */
+function resizePhoto(file, maxWidth) {
+  maxWidth = maxWidth || 600;
+  return new Promise(function(resolve) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var img = new Image();
+      img.onload = function() {
+        var w = img.width, h = img.height;
+        if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.75));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ---------- Photo sélectionnée dans le modal d'annotation --------- */
+function onAnnotationPhotoSelected(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  resizePhoto(file).then(function(dataUrl) {
+    pendingAnnotationPhoto = dataUrl;
+    updatePhotoPreview();
+  });
+  event.target.value = ''; // reset pour pouvoir re-sélectionner le même fichier
+}
+
+function updatePhotoPreview() {
+  var zone = document.getElementById('photo-upload-zone');
+  if (pendingAnnotationPhoto) {
+    zone.innerHTML =
+      '<img class="photo-preview" src="' + pendingAnnotationPhoto + '" alt="Photo">' +
+      '<span class="photo-upload-label">Changer</span>' +
+      '<span class="photo-remove" onclick="event.stopPropagation(); removeAnnotationPhoto();" title="Retirer">✕</span>';
+  } else {
+    zone.innerHTML =
+      '<span class="photo-upload-label" id="photo-upload-label">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>' +
+      ' 📷 Ajouter une photo</span>';
+  }
+}
+
+function removeAnnotationPhoto() {
+  pendingAnnotationPhoto = null;
+  updatePhotoPreview();
+}
+
+/* ---------- Photo géolocalisée (bouton toolbar 📷) ---------------- */
+/**
+ * Flux :
+ * 1. L'utilisateur sélectionne une photo
+ * 2. On lit l'EXIF pour chercher des coordonnées GPS
+ * 3. Si GPS trouvé → on place le marqueur à ces coordonnées, on ouvre le modal
+ * 4. Si pas de GPS → toast d'erreur
+ */
+function onGeoPhotoSelected(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+
+  // Lancer en parallèle : extraction EXIF + redimensionnement
+  Promise.all([
+    extractGPSFromExif(file),
+    resizePhoto(file)
+  ]).then(function(results) {
+    var gps = results[0];
+    var dataUrl = results[1];
+
+    if (!gps) {
+      showToast('⚠️ Pas de coordonnées GPS dans cette photo. Utilise l\'annotation manuelle.');
+      return;
+    }
+
+    // Pré-remplir la position et la photo
+    pendingAnnotationLatLng = L.latLng(gps.lat, gps.lon);
+    pendingAnnotationPhoto = dataUrl;
+    selectedAnnoIcon = 0;
+    buildIconGrid();
+    updatePhotoPreview();
+    document.getElementById('anno-title').value = '📷 Photo';
+    document.getElementById('anno-text').value = '';
+    document.getElementById('annotation-modal').classList.add('visible');
+    document.getElementById('anno-title').focus();
+
+    // Centrer la carte sur la position de la photo
+    map.setView([gps.lat, gps.lon], Math.max(map.getZoom(), 15));
+    showToast('📍 Position GPS trouvée : ' + gps.lat.toFixed(5) + ', ' + gps.lon.toFixed(5));
+  });
+
+  event.target.value = '';
+}
+
+/* ---------- Lightbox (clic sur photo dans popup) ------------------- */
+function openPhotoLightbox(dataUrl) {
+  var lb = document.createElement('div');
+  lb.className = 'photo-lightbox';
+  lb.innerHTML = '<img src="' + dataUrl + '">';
+  lb.onclick = function() { document.body.removeChild(lb); };
+  document.body.appendChild(lb);
+}
+
 function closeAnnotationModal() {
   document.getElementById('annotation-modal').classList.remove('visible');
   pendingAnnotationLatLng = null;
+  pendingAnnotationPhoto = null;
+  updatePhotoPreview();
 }
 
 function confirmAnnotation() {
@@ -1143,13 +1430,16 @@ function confirmAnnotation() {
   var trail = trails[activeTrailIdx];
   var anno = {
     latlng: [pendingAnnotationLatLng.lat, pendingAnnotationLatLng.lng],
-    title: title, text: text, icon: selectedAnnoIcon
+    title: title, text: text, icon: selectedAnnoIcon,
+    photo: pendingAnnotationPhoto || null
   };
   trail.annotations.push(anno);
   addAnnotationMarker(activeTrailIdx, anno, trail.annotations.length - 1);
 
   document.getElementById('anno-title').value = '';
   document.getElementById('anno-text').value = '';
+  pendingAnnotationPhoto = null;
+  updatePhotoPreview();
   closeAnnotationModal();
   showToast(ANNO_ICONS[selectedAnnoIcon].emoji + ' "' + title + '" ajouté');
 }
@@ -1158,26 +1448,59 @@ function addAnnotationMarker(trailIdx, anno, annoIdx) {
   var ld = leafletData[trailIdx];
   var ic = ANNO_ICONS[anno.icon || 0] || ANNO_ICONS[ANNO_ICONS.length - 1];
 
-  var icon = L.divIcon({
-    className: '',
-    html: '<div style="width:32px;height:32px;background:' + ic.bg +
+  // Si l'annotation a une photo, afficher une mini-vignette comme marqueur
+  var markerHtml;
+  if (anno.photo) {
+    markerHtml = '<div style="width:36px;height:36px;border-radius:50% 50% 50% 0;' +
+      'transform:rotate(-45deg);overflow:hidden;border:2px solid rgba(255,255,255,0.6);' +
+      'box-shadow:0 2px 10px rgba(0,0,0,0.4);">' +
+      '<img src="' + anno.photo + '" style="width:100%;height:100%;object-fit:cover;transform:rotate(45deg) scale(1.4);"></div>';
+  } else {
+    markerHtml = '<div style="width:32px;height:32px;background:' + ic.bg +
       ';border:2px solid rgba(255,255,255,0.4);border-radius:50% 50% 50% 0;' +
       'transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;' +
       'box-shadow:0 2px 10px rgba(0,0,0,0.4);">' +
-      '<span style="transform:rotate(45deg);font-size:15px;">' + ic.emoji + '</span></div>',
-    iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -34]
+      '<span style="transform:rotate(45deg);font-size:15px;">' + ic.emoji + '</span></div>';
+  }
+
+  var icon = L.divIcon({
+    className: '',
+    html: markerHtml,
+    iconSize: [36, 36], iconAnchor: [18, 36], popupAnchor: [0, -38]
   });
 
   var marker = L.marker(anno.latlng, { icon: icon }).addTo(map);
+
+  // Construire le HTML de la popup
+  var photoHtml = anno.photo
+    ? '<img class="popup-photo" src="' + anno.photo +
+      '" data-trail="' + trailIdx + '" data-anno="' + annoIdx + '" alt="Photo">'
+    : '';
+
   var html = '<div class="popup-annotation">' +
     '<div class="popup-icon">' + ic.emoji + '</div>' +
     '<h4>' + escapeHtml(anno.title) + '</h4>' +
+    photoHtml +
     (anno.text ? '<p>' + escapeHtml(anno.text) + '</p>' : '') +
     '<div class="popup-actions">' +
     '<button onclick="editAnnotation(' + trailIdx + ',' + annoIdx + ')">Modifier</button>' +
     '<button onclick="deleteAnnotation(' + trailIdx + ',' + annoIdx + ')">Supprimer</button>' +
     '</div></div>';
-  marker.bindPopup(html, { maxWidth: 260 });
+  marker.bindPopup(html, { maxWidth: 280 });
+
+  // Gérer le clic photo dans la popup → ouvrir la lightbox
+  if (anno.photo) {
+    marker.on('popupopen', function() {
+      var img = document.querySelector('.popup-photo[data-trail="' + trailIdx + '"][data-anno="' + annoIdx + '"]');
+      if (img) {
+        img.onclick = function() {
+          var a = trails[trailIdx] && trails[trailIdx].annotations[annoIdx];
+          if (a && a.photo) openPhotoLightbox(a.photo);
+        };
+      }
+    });
+  }
+
   ld.annoMarkers.push(marker);
 }
 
@@ -1306,7 +1629,7 @@ function saveProject() {
         };
       }),
       annotations: (t.annotations || []).map(function(a) {
-        return { latlng: [a.latlng[0], a.latlng[1]], title: a.title, text: a.text, icon: a.icon || 0 };
+        return { latlng: [a.latlng[0], a.latlng[1]], title: a.title, text: a.text, icon: a.icon || 0, photo: a.photo || null };
       })
     };
   });
@@ -1316,7 +1639,14 @@ function saveProject() {
     createdAt: new Date().toISOString(),
     trails: trailsCopy
   });
-  localStorage.setItem('trailforge_projects', JSON.stringify(savedProjects));
+  try {
+    localStorage.setItem('trailforge_projects', JSON.stringify(savedProjects));
+  } catch (e) {
+    // localStorage plein (~5 Mo) — probablement trop de photos
+    savedProjects.pop();
+    showToast('⚠️ Stockage plein ! Supprime des projets ou réduis les photos.');
+    return;
+  }
   document.getElementById('project-name').value = '';
   document.getElementById('project-desc').value = '';
   closeSaveModal(); refreshPanel();
@@ -1343,7 +1673,7 @@ function loadProject(id) {
       };
     });
     trails[idx].annotations = (t.annotations || []).map(function(a) {
-      return { latlng: [a.latlng[0], a.latlng[1]], title: a.title, text: a.text, icon: a.icon || 0 };
+      return { latlng: [a.latlng[0], a.latlng[1]], title: a.title, text: a.text, icon: a.icon || 0, photo: a.photo || null };
     });
 
     // Diagnostic : vérifier les types restaurés
