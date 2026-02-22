@@ -881,14 +881,15 @@ let selectedAnnoIcon = 0; // index dans ANNO_ICONS
    - leafletData[] : éléments Leaflet (markers, polylines, annoMarkers)
    
    MODE :
-   - 'draw'     : poser des points (prolonge le dernier segment)
-   - 'branch'   : nouveau tronçon indépendant (clic = démarrer une branche)
-   - 'annotate' : poser une annotation
-   - 'off'      : navigation seule
+   - 'draw'       : poser des points (prolonge le dernier segment)
+   - 'branch'     : nouveau tronçon indépendant (clic = démarrer une branche)
+   - 'annotate'   : poser une annotation
+   - 'placePhoto' : placer une photo sans GPS (clic = position de la photo)
+   - 'off'        : navigation seule
    ================================================================== */
 let trails = [];
 let activeTrailIdx = 0;
-let mode = 'draw';           // 'draw' | 'branch' | 'annotate' | 'off'
+let mode = 'draw';           // 'draw' | 'branch' | 'annotate' | 'placePhoto' | 'off'
 let currentType = 'trail-ok';
 let leafletData = [];
 let pendingAnnotationLatLng = null;
@@ -943,6 +944,21 @@ function selectAnnoIcon(idx) {
    CLIC CARTE — dispatch selon le mode
    ================================================================== */
 map.on('click', function(e) {
+  if (mode === 'placePhoto') {
+    // Placement manuel d'une photo sans GPS
+    pendingAnnotationLatLng = e.latlng;
+    pendingAnnotationPhoto = pendingGeoPhoto;
+    pendingGeoPhoto = null;
+    selectedAnnoIcon = 0;
+    buildIconGrid();
+    updatePhotoPreview();
+    document.getElementById('anno-title').value = '📷 Photo';
+    document.getElementById('anno-text').value = '';
+    document.getElementById('annotation-modal').classList.add('visible');
+    document.getElementById('anno-title').focus();
+    setMode('draw'); // revenir au mode par défaut après placement
+    return;
+  }
   if (mode === 'annotate') {
     pendingAnnotationLatLng = e.latlng;
     selectedAnnoIcon = 0;
@@ -1460,11 +1476,16 @@ function removeAnnotationPhoto() {
  * 1. L'utilisateur sélectionne une photo
  * 2. On lit l'EXIF pour chercher des coordonnées GPS
  * 3. Si GPS trouvé → on place le marqueur à ces coordonnées, on ouvre le modal
- * 4. Si pas de GPS → toast d'erreur
+ * 4. Si pas de GPS → proposer de placer la photo manuellement sur la carte
  */
+let pendingGeoPhoto = null; // photo en attente de placement manuel
+
 function onGeoPhotoSelected(event) {
   var file = event.target.files[0];
   if (!file) return;
+
+  // Log de diagnostic pour debugger les problèmes EXIF
+  console.log('[Photo] Fichier reçu:', file.name, file.type, file.size, 'octets');
 
   // Lancer en parallèle : extraction EXIF + redimensionnement
   Promise.all([
@@ -1474,25 +1495,26 @@ function onGeoPhotoSelected(event) {
     var gps = results[0];
     var dataUrl = results[1];
 
-    if (!gps) {
-      showToast('⚠️ Pas de coordonnées GPS dans cette photo. Utilise l\'annotation manuelle.');
-      return;
+    if (gps) {
+      // GPS trouvé → placement automatique
+      pendingAnnotationLatLng = L.latLng(gps.lat, gps.lon);
+      pendingAnnotationPhoto = dataUrl;
+      selectedAnnoIcon = 0;
+      buildIconGrid();
+      updatePhotoPreview();
+      document.getElementById('anno-title').value = '📷 Photo';
+      document.getElementById('anno-text').value = '';
+      document.getElementById('annotation-modal').classList.add('visible');
+      document.getElementById('anno-title').focus();
+      map.setView([gps.lat, gps.lon], Math.max(map.getZoom(), 15));
+      showToast('📍 GPS trouvé : ' + gps.lat.toFixed(5) + ', ' + gps.lon.toFixed(5));
+    } else {
+      // Pas de GPS → proposer le placement manuel
+      pendingGeoPhoto = dataUrl;
+      mode = 'placePhoto';
+      updateCursor();
+      showToast('📍 Pas de GPS détecté — clique sur la carte pour placer la photo', 5000);
     }
-
-    // Pré-remplir la position et la photo
-    pendingAnnotationLatLng = L.latLng(gps.lat, gps.lon);
-    pendingAnnotationPhoto = dataUrl;
-    selectedAnnoIcon = 0;
-    buildIconGrid();
-    updatePhotoPreview();
-    document.getElementById('anno-title').value = '📷 Photo';
-    document.getElementById('anno-text').value = '';
-    document.getElementById('annotation-modal').classList.add('visible');
-    document.getElementById('anno-title').focus();
-
-    // Centrer la carte sur la position de la photo
-    map.setView([gps.lat, gps.lon], Math.max(map.getZoom(), 15));
-    showToast('📍 Position GPS trouvée : ' + gps.lat.toFixed(5) + ', ' + gps.lon.toFixed(5));
   });
 
   event.target.value = '';
@@ -1626,11 +1648,15 @@ function rebuildAnnotations(trailIdx) {
    MODES — un seul mode actif à la fois
    ================================================================== */
 function setMode(m) {
+  // Si on quitte le mode placePhoto sans avoir placé la photo, nettoyer
+  if (mode === 'placePhoto' && m !== 'placePhoto') {
+    pendingGeoPhoto = null;
+  }
   mode = m;
   branchStarted = false;
   document.getElementById('btn-draw').className = (m === 'draw') ? 'active' : '';
   document.getElementById('btn-branch').className = (m === 'branch') ? 'active-blue' : '';
-  document.getElementById('btn-annotate').className = (m === 'annotate') ? 'active-green' : '';
+  document.getElementById('btn-annotate').className = (m === 'annotate' || m === 'placePhoto') ? 'active-green' : '';
   updateCursor();
   if (m === 'branch') showToast('Cliquez pour démarrer un nouveau tronçon');
 }
@@ -3109,10 +3135,10 @@ function downloadGPSCoords() {
 /* ==================================================================
    UTILS
    ================================================================== */
-function showToast(msg) {
+function showToast(msg, duration) {
   var el = document.getElementById('toast');
   el.textContent = msg; el.classList.add('visible');
-  setTimeout(function() { el.classList.remove('visible'); }, 2500);
+  setTimeout(function() { el.classList.remove('visible'); }, duration || 2500);
 }
 function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function escapeXml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;'); }
