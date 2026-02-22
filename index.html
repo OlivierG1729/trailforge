@@ -418,10 +418,15 @@
   .drawing-mode .leaflet-interactive { cursor: crosshair !important; }
 
   @media (max-width: 640px) {
-    .header { top: 10px; padding: 6px 14px; gap: 10px; flex-wrap: wrap; justify-content: center; }
-    .header .logo { font-size: 0.92rem; }
-    .header .stats { font-size: 0.72rem; gap: 10px; }
-    .header .stats .distance-display { font-size: 0.95rem; }
+    /* Header → plus compact, aligné à gauche pour libérer la droite (couches carte) */
+    .header {
+      top: 8px; left: 10px; right: auto; transform: none;
+      padding: 5px 12px; gap: 8px; flex-wrap: nowrap;
+      max-width: calc(100vw - 80px);
+    }
+    .header .logo { font-size: 0.82rem; }
+    .header .stats { font-size: 0.68rem; gap: 6px; }
+    .header .stats .distance-display { font-size: 0.82rem; padding: 1px 6px; }
 
     /* Toolbar → grille en bas de l'écran, 2 rangées auto-wrap */
     .toolbar {
@@ -447,13 +452,15 @@
     }
     .opacity-control input[type="range"] { flex: 1; min-width: 0; }
 
-    /* Trail selector → en haut à gauche, sous le header */
+    /* Trail selector → sous le header, compacté */
     .trail-selector {
-      top: 90px; bottom: auto; left: 10px;
-      flex-wrap: wrap; max-width: 280px;
-      padding: 4px 8px; font-size: 0.75rem;
+      top: 52px; bottom: auto; left: 10px;
+      flex-wrap: wrap; max-width: 260px;
+      padding: 4px 8px; font-size: 0.72rem; gap: 4px;
     }
-    .trail-selector select { max-width: 120px; font-size: 0.75rem; }
+    .trail-selector label { display: none; }
+    .trail-selector select { max-width: 110px; font-size: 0.72rem; }
+    .trail-selector button { padding: 3px 6px; font-size: 0.68rem; }
 
     .help-bar { display: none; }
     .panel { width: 100%; }
@@ -466,6 +473,56 @@
       font-size: 0.78rem; flex-wrap: wrap; justify-content: center;
     }
     .live-hud .live-stats { gap: 10px; font-size: 0.78rem; }
+  }
+
+  /* ===== PAYSAGE SMARTPHONE (hauteur réduite) ===== */
+  @media (max-height: 500px) {
+    /* Header → compact, en haut à gauche */
+    .header {
+      top: 6px; left: 10px; right: auto; transform: none;
+      padding: 4px 10px; gap: 8px;
+      max-width: calc(100vw - 180px);
+    }
+    .header .logo { font-size: 0.82rem; }
+    .header .stats { font-size: 0.68rem; gap: 6px; }
+    .header .stats .distance-display { font-size: 0.82rem; padding: 1px 6px; }
+
+    /* Toolbar → barre horizontale en bas, compacte */
+    .toolbar {
+      top: auto; bottom: 6px; left: 50%; right: auto;
+      transform: translateX(-50%); flex-direction: row; flex-wrap: wrap;
+      justify-content: center; gap: 2px;
+      padding: 4px 6px; border-radius: 12px;
+    }
+    .toolbar button { width: 32px; height: 32px; }
+    .toolbar button::after { display: none; }
+    .toolbar .separator { display: none; }
+
+    /* Trail selector → sous le header */
+    .trail-selector {
+      top: 42px; left: 10px; bottom: auto;
+      padding: 3px 8px; font-size: 0.7rem; gap: 4px;
+    }
+    .trail-selector label { display: none; }
+    .trail-selector select { max-width: 100px; font-size: 0.7rem; }
+    .trail-selector button { padding: 2px 6px; font-size: 0.65rem; }
+
+    /* Type selector → au-dessus de la toolbar */
+    .type-selector {
+      top: auto; bottom: 56px; left: 10px; right: auto;
+      transform: none; flex-direction: row; flex-wrap: wrap;
+      max-width: 230px;
+    }
+    .type-btn { padding: 4px 6px; font-size: 0.65rem; }
+    .opacity-control {
+      width: 100%; padding: 2px 6px;
+      border-top: 1px solid var(--border);
+    }
+    .opacity-control label { font-size: 0.6rem; }
+    .opacity-control input[type="range"] { flex: 1; min-width: 0; }
+    .opacity-control #opacity-value { font-size: 0.6rem; }
+
+    .help-bar { display: none; }
   }
   #file-input { display: none; }
 </style>
@@ -2647,5 +2704,4 @@ updateStats();
 })();
 </script>
 </body>
-  <!-- v5.1 -->
 </html>
