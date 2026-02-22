@@ -1191,20 +1191,16 @@ function setTrailOpacity(val) {
 /* ---------- Variable pour stocker la photo en cours d'ajout -------- */
 let pendingAnnotationPhoto = null; // base64 data URL ou null
 
-/* ---------- EXIF GPS Parser (JPEG uniquement, sans librairie) ------ */
+/* ---------- EXIF GPS Parser (JPEG, sans librairie) ----------------- */
 /**
  * Lit les métadonnées EXIF d'un fichier JPEG et extrait les coordonnées GPS.
- * Retourne une Promise qui résout vers { lat, lon } ou null si pas de GPS.
+ * Retourne une Promise → { lat, lon } ou null.
  *
- * Fonctionnement :
- * 1. On cherche le marqueur EXIF APP1 (0xFFE1) dans l'en-tête JPEG
- * 2. On parse le TIFF header pour trouver le IFD0
- * 3. On cherche le tag GPSInfo (0x8825) qui pointe vers le sous-IFD GPS
- * 4. Dans le sous-IFD GPS, on lit les tags :
- *    - 0x0001 GPSLatitudeRef (N/S)
- *    - 0x0002 GPSLatitude (3 rationnels : degrés, minutes, secondes)
- *    - 0x0003 GPSLongitudeRef (E/W)
- *    - 0x0004 GPSLongitude (3 rationnels)
+ * Robustesse :
+ * - Parcourt TOUS les segments APP1 (le premier peut être XMP, pas EXIF)
+ * - Cherche le tag GPSInfo (0x8825) dans IFD0 ET dans le sous-IFD EXIF (0x8769)
+ * - Gère Little-Endian (II) et Big-Endian (MM)
+ * - Lit 256 Ko pour couvrir les gros MakerNote Samsung
  */
 function extractGPSFromExif(file) {
   return new Promise(function(resolve) {
@@ -1212,98 +1208,194 @@ function extractGPSFromExif(file) {
     reader.onload = function(e) {
       try {
         var buf = new DataView(e.target.result);
-        // Vérifier signature JPEG (0xFFD8)
-        if (buf.getUint16(0) !== 0xFFD8) { resolve(null); return; }
-
-        var offset = 2;
         var len = buf.byteLength;
+
+        // Vérifier signature JPEG (0xFFD8)
+        if (buf.getUint16(0) !== 0xFFD8) {
+          console.warn('[EXIF] Pas un JPEG (signature manquante)');
+          resolve(null); return;
+        }
+
+        // Parcourir tous les segments JPEG pour trouver APP1 EXIF
+        var offset = 2;
         while (offset < len - 4) {
-          var marker = buf.getUint16(offset);
-          if (marker === 0xFFE1) { // APP1 = EXIF
-            var exifLen = buf.getUint16(offset + 2);
-            // Vérifier "Exif\0\0" (6 octets)
-            var exifStr = String.fromCharCode(buf.getUint8(offset+4), buf.getUint8(offset+5),
-              buf.getUint8(offset+6), buf.getUint8(offset+7));
-            if (exifStr !== 'Exif') { resolve(null); return; }
+          // Chercher le prochain marqueur 0xFF
+          if (buf.getUint8(offset) !== 0xFF) { offset++; continue; }
+          var markerType = buf.getUint8(offset + 1);
 
-            var tiffStart = offset + 10; // après marker(2) + len(2) + "Exif\0\0"(6)
-            var bo = buf.getUint16(tiffStart) === 0x4949; // little-endian?
+          // Marqueurs sans longueur (standalone) — les passer
+          if (markerType === 0xFF) { offset++; continue; } // padding
+          if (markerType === 0xD8 || markerType === 0xD9) { offset += 2; continue; } // SOI, EOI
+          if (markerType >= 0xD0 && markerType <= 0xD7) { offset += 2; continue; } // RST
 
-            function getU16(o) { return buf.getUint16(tiffStart + o, bo); }
-            function getU32(o) { return buf.getUint32(tiffStart + o, bo); }
-
-            // Lire un rationnel EXIF (2 uint32 : numérateur / dénominateur)
-            function getRational(o) {
-              var num = getU32(o);
-              var den = getU32(o + 4);
-              return den ? num / den : 0;
-            }
-
-            // Lire les entrées d'un IFD et retourner un objet { tag → {type, count, valueOffset} }
-            function readIFD(ifdOffset) {
-              var entries = {};
-              var count = getU16(ifdOffset);
-              for (var i = 0; i < count; i++) {
-                var eo = ifdOffset + 2 + i * 12;
-                var tag = getU16(eo);
-                var type = getU16(eo + 2);
-                var cnt = getU32(eo + 4);
-                var valOff = getU32(eo + 8);
-                entries[tag] = { type: type, count: cnt, valOff: valOff, entryOff: eo + 8 };
-              }
-              return entries;
-            }
-
-            // Lire IFD0
-            var ifd0Offset = getU32(4);
-            var ifd0 = readIFD(ifd0Offset);
-
-            // Chercher le tag GPSInfo (0x8825)
-            if (!ifd0[0x8825]) { resolve(null); return; }
-            var gpsIfdOffset = ifd0[0x8825].valOff;
-            var gpsIfd = readIFD(gpsIfdOffset);
-
-            // Lire un caractère ASCII depuis un tag
-            function getAscii(entry) {
-              if (!entry) return '';
-              return String.fromCharCode(buf.getUint8(tiffStart + entry.entryOff));
-            }
-
-            // Convertir DMS (3 rationnels) en décimal
-            function dmsToDecimal(entry) {
-              if (!entry) return 0;
-              var off = entry.valOff;
-              var deg = getRational(off);
-              var min = getRational(off + 8);
-              var sec = getRational(off + 16);
-              return deg + min / 60 + sec / 3600;
-            }
-
-            var latRef = getAscii(gpsIfd[0x0001]); // N ou S
-            var lat = dmsToDecimal(gpsIfd[0x0002]);
-            var lonRef = getAscii(gpsIfd[0x0003]); // E ou W
-            var lon = dmsToDecimal(gpsIfd[0x0004]);
-
-            if (lat === 0 && lon === 0) { resolve(null); return; }
-            if (latRef === 'S') lat = -lat;
-            if (lonRef === 'W') lon = -lon;
-
-            resolve({ lat: lat, lon: lon });
-            return;
-          }
-          // Passer au marqueur suivant
+          // Lire la longueur du segment
+          if (offset + 4 > len) break;
           var segLen = buf.getUint16(offset + 2);
+          if (segLen < 2) break; // invalide
+
+          // Est-ce un APP1 (0xE1) ?
+          if (markerType === 0xE1) {
+            // Vérifier si c'est "Exif\0\0" (6 octets à partir de offset+4)
+            if (offset + 10 < len &&
+                buf.getUint8(offset+4) === 0x45 && // E
+                buf.getUint8(offset+5) === 0x78 && // x
+                buf.getUint8(offset+6) === 0x69 && // i
+                buf.getUint8(offset+7) === 0x66 && // f
+                buf.getUint8(offset+8) === 0x00 && // \0
+                buf.getUint8(offset+9) === 0x00) {  // \0
+
+              // === SEGMENT EXIF TROUVÉ ===
+              var tiffStart = offset + 10;
+              var result = parseExifTiff(buf, tiffStart, len);
+              if (result) { resolve(result); return; }
+              // Si parsing échoue, continuer à chercher un autre APP1
+            }
+            // Sinon c'est un APP1 XMP ou autre → on continue
+          }
+
+          // SOS (0xDA) = début des données image → plus de métadonnées après
+          if (markerType === 0xDA) break;
+
+          // Passer au segment suivant
           offset += 2 + segLen;
         }
-        resolve(null); // Pas trouvé de segment EXIF
+
+        console.warn('[EXIF] Aucun segment APP1 EXIF avec GPS trouvé');
+        resolve(null);
       } catch (err) {
-        console.error('[EXIF]', err);
+        console.error('[EXIF] Erreur:', err);
         resolve(null);
       }
     };
-    // On lit seulement les premiers 128 Ko (l'EXIF est toujours au début)
-    reader.readAsArrayBuffer(file.slice(0, 131072));
+    // Lire 256 Ko — couvre les MakerNote volumineux (Samsung, etc.)
+    reader.readAsArrayBuffer(file.slice(0, 262144));
   });
+}
+
+/**
+ * Parse les données TIFF à partir de tiffStart dans le DataView.
+ * Retourne { lat, lon } ou null.
+ */
+function parseExifTiff(buf, tiffStart, bufLen) {
+  // Byte order : "II" = little-endian, "MM" = big-endian
+  var byteOrder = buf.getUint16(tiffStart);
+  var le = (byteOrder === 0x4949); // little-endian?
+
+  // Fonctions de lecture relative à tiffStart
+  function u16(off) { return buf.getUint16(tiffStart + off, le); }
+  function u32(off) { return buf.getUint32(tiffStart + off, le); }
+  function rational(off) {
+    var num = u32(off);
+    var den = u32(off + 4);
+    return den !== 0 ? num / den : 0;
+  }
+
+  // Vérifier le magic number TIFF (42)
+  if (u16(2) !== 0x002A) {
+    console.warn('[EXIF] Magic TIFF invalide');
+    return null;
+  }
+
+  // Lire un IFD (Image File Directory) → { tag: { type, count, value, valueOffset } }
+  function readIFD(ifdOff) {
+    if (ifdOff < 0 || tiffStart + ifdOff + 2 > bufLen) return {};
+    var count = u16(ifdOff);
+    var entries = {};
+    for (var i = 0; i < count; i++) {
+      var eo = ifdOff + 2 + i * 12;
+      if (tiffStart + eo + 12 > bufLen) break;
+      var tag = u16(eo);
+      var type = u16(eo + 2);
+      var cnt = u32(eo + 4);
+
+      // Taille en octets d'une valeur selon le type EXIF
+      var typeSize = [0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8][type] || 1;
+      var totalSize = cnt * typeSize;
+
+      // Si totalSize ≤ 4, la valeur est inline (dans les 4 octets à eo+8)
+      // Sinon, c'est un offset vers les données
+      var valueOffset;
+      if (totalSize <= 4) {
+        valueOffset = eo + 8; // position inline (relative à tiffStart)
+      } else {
+        valueOffset = u32(eo + 8); // offset dans le TIFF
+      }
+
+      entries[tag] = { type: type, count: cnt, size: totalSize, valueOffset: valueOffset, inline: totalSize <= 4 };
+    }
+    return entries;
+  }
+
+  // Lire un caractère ASCII (pour GPSLatitudeRef, GPSLongitudeRef)
+  function readAscii(entry) {
+    if (!entry) return '';
+    var off = tiffStart + entry.valueOffset;
+    if (off >= bufLen) return '';
+    return String.fromCharCode(buf.getUint8(off));
+  }
+
+  // Convertir 3 rationnels DMS → degrés décimaux
+  function readDMS(entry) {
+    if (!entry || entry.count < 3) return 0;
+    var off = entry.valueOffset; // toujours un offset (3 rationnels = 24 bytes > 4)
+    return rational(off) + rational(off + 8) / 60 + rational(off + 16) / 3600;
+  }
+
+  // --- Lire IFD0 ---
+  var ifd0Off = u32(4);
+  var ifd0 = readIFD(ifd0Off);
+  console.log('[EXIF] IFD0 tags:', Object.keys(ifd0).map(function(k) { return '0x' + parseInt(k).toString(16); }));
+
+  // Chercher GPSInfo (0x8825) dans IFD0
+  var gpsIfdOff = null;
+  if (ifd0[0x8825]) {
+    gpsIfdOff = ifd0[0x8825].inline ? u32(ifd0[0x8825].valueOffset) : ifd0[0x8825].valueOffset;
+    // Pour un tag LONG inline, la valeur EST l'offset (on le lit directement)
+    if (ifd0[0x8825].inline) {
+      // La valeur est stockée dans les 4 octets à valueOffset
+      gpsIfdOff = u32(ifd0[0x8825].valueOffset);
+    } else {
+      gpsIfdOff = ifd0[0x8825].valueOffset;
+    }
+  }
+
+  // Si pas trouvé dans IFD0, chercher via le sous-IFD EXIF (0x8769)
+  if (gpsIfdOff === null && ifd0[0x8769]) {
+    var exifIfdOff = ifd0[0x8769].inline ? u32(ifd0[0x8769].valueOffset) : ifd0[0x8769].valueOffset;
+    var exifIfd = readIFD(exifIfdOff);
+    console.log('[EXIF] ExifIFD tags:', Object.keys(exifIfd).map(function(k) { return '0x' + parseInt(k).toString(16); }));
+    if (exifIfd[0x8825]) {
+      gpsIfdOff = exifIfd[0x8825].inline ? u32(exifIfd[0x8825].valueOffset) : exifIfd[0x8825].valueOffset;
+    }
+  }
+
+  if (gpsIfdOff === null) {
+    console.warn('[EXIF] Tag GPSInfo (0x8825) introuvable dans IFD0 ni ExifIFD');
+    return null;
+  }
+
+  // --- Lire le GPS IFD ---
+  var gpsIfd = readIFD(gpsIfdOff);
+  console.log('[EXIF] GPS IFD tags:', Object.keys(gpsIfd).map(function(k) { return '0x' + parseInt(k).toString(16); }));
+
+  // Extraire les coordonnées
+  var latRef = readAscii(gpsIfd[0x0001]); // GPSLatitudeRef  : N ou S
+  var lat = readDMS(gpsIfd[0x0002]);       // GPSLatitude     : 3 rationnels
+  var lonRef = readAscii(gpsIfd[0x0003]); // GPSLongitudeRef : E ou W
+  var lon = readDMS(gpsIfd[0x0004]);       // GPSLongitude    : 3 rationnels
+
+  console.log('[EXIF] GPS brut:', latRef, lat, lonRef, lon);
+
+  if (lat === 0 && lon === 0) {
+    console.warn('[EXIF] Coordonnées GPS à 0,0 — probablement invalides');
+    return null;
+  }
+
+  if (latRef === 'S') lat = -lat;
+  if (lonRef === 'W') lon = -lon;
+
+  console.log('[EXIF] GPS final:', lat, lon);
+  return { lat: lat, lon: lon };
 }
 
 /* ---------- Redimensionner une photo en base64 -------------------- */
